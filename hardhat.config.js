@@ -2,6 +2,8 @@ require("dotenv").config();
 
 require("@nomiclabs/hardhat-etherscan");
 require("@nomiclabs/hardhat-waffle");
+require("@nomiclabs/hardhat-truffle5");
+require("@nomiclabs/hardhat-ganache");
 require("hardhat-gas-reporter");
 require("solidity-coverage");
 
@@ -31,12 +33,52 @@ module.exports = {
             enabled: true,
             runs: 200
           },
+         // evmVersion: 'istanbul'
+        }
+      },
+      {
+        version: "0.6.6",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200
+          },
+          evmVersion: 'istanbul'
+        }
+      },
+      {
+        version: "0.5.16",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200
+          },
+          evmVersion: 'istanbul'
+        }
+      },
+      {
+        version: "0.4.18",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200
+          },
           evmVersion: 'istanbul'
         }
       },
     ],
   },
   networks: {
+    ropsten: {
+      url: process.env.ROPSTEN_URL || "",
+      accounts:
+        process.env.PRIVATE_KEY !== undefined ? [process.env.PRIVATE_KEY] : [],
+    },
+    rinkeby: {
+      url: process.env.RINKEBY_URL || "",
+      accounts:
+        process.env.PRIVATE_KEY !== undefined ? [process.env.PRIVATE_KEY] : [],
+    },
     testnet: {
       url: process.env.BSC_TESTNET || "",
       accounts: process.env.PRIVATE_KEY !== undefined ? [process.env.PRIVATE_KEY] : [],
@@ -45,12 +87,18 @@ module.exports = {
       url: process.env.BSC_MAINNET || "",
       accounts: process.env.PRIVATE_KEY !== undefined ? [process.env.PRIVATE_KEY] : [],
     },
+    hardhat: {
+      blockGasLimit: 10000000,
+      allowUnlimitedContractSize: true,
+    },
   },
   gasReporter: {
     enabled: process.env.REPORT_GAS !== undefined,
+   // outputFile: 'gas-report.pdf',
+    gasPriceApi: "https://api.etherscan.io/api?module=proxy&action=eth_gasPrice",
     currency: "USD",
   },
   etherscan: {
-    apiKey: process.env.BSCSCAN_API_KEY,
+    apiKey: process.env.ETHERSCAN_API_KEY,
   },
 };

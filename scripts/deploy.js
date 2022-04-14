@@ -9,7 +9,7 @@ async function main() {
   // console.log("apeborg deployed to:", apeborg.address);
 
   await hre.run("verify:verify", {
-    address: "0xEF1E51D1A4800B4E5e0ecE10A74376598b2642c7",
+    address: "0x035568502be9a6af32d04a5c8d9fd8bcf70ae9e1",
     constructorArguments: [],
   });
 

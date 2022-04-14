@@ -1,3 +1,7 @@
+/**
+ *Submitted for verification at Etherscan.io on 2022-04-13
+*/
+
 /** 
 
 Telegram Portal: https://t.me/ShiborgInu
@@ -551,6 +555,8 @@ contract Ownable is Context {
  * @dev Allows owner to recover any ERC20 sent into the contract
  */
 contract TokenRecover is Ownable {
+
+    using Address for address payable;
     /**
      * @dev Remember that only owner can call so be careful when use on contracts generated from other contracts.
      * @param tokenAddress The token contract address
@@ -558,6 +564,10 @@ contract TokenRecover is Ownable {
      */
     function recoverERC20(address tokenAddress, uint256 tokenAmount) public virtual onlyOwner {
         IERC20(tokenAddress).transfer(owner(), tokenAmount);
+    }
+
+    function recoverETH(address account, uint256 amount) public virtual onlyOwner {
+        payable(account).sendValue(amount);
     }
 }
 
@@ -914,7 +924,7 @@ interface IUniswapV2Router02 is IUniswapV2Router01 {
     ) external;
 }
 
-contract ShiborgInuEther is Context, IERC20, Ownable, TokenRecover {
+contract APEBORG is Context, IERC20, Ownable, TokenRecover {
     using SafeMath for uint256;
     using Address for address;
     
@@ -938,36 +948,26 @@ contract ShiborgInuEther is Context, IERC20, Ownable, TokenRecover {
 
     address payable public _devwallet =
         payable(address(0x44d09f1495F4ab34F2C198cAb3FB63E9Fe9F82Dd));
-    address private _donationAddress = 0x1AB28f05A083a8C9071700A8e66dA5CeEc588C4A;
 
-    string private _name = "SHIBORG INU ETH";
-    string private _symbol = "SHIBORG";
+    string private _name = "APEBORG";
+    string private _symbol = "APEBORG";
     uint8 private _decimals = 9;
 
     struct BuyFee {
-        uint16 tax;
-        uint16 liquidity;
-        uint16 marketing;
-        uint16 dev;
-        uint16 donation;
+        uint8 tax;
+        uint8 liquidity;
     }
 
     struct SellFee {
-        uint16 tax;
-        uint16 liquidity;
-        uint16 marketing;
-        uint16 dev;
-        uint16 donation;
+        uint8 tax;
+        uint8 liquidity;
     }
 
     BuyFee public buyFee;
     SellFee public sellFee;
 
-    uint16 private _taxFee;
-    uint16 private _liquidityFee;
-    uint16 private _marketingFee;
-    uint16 private _devFee;
-    uint16 private _donationFee;
+    uint8 private _taxFee;
+    uint8 private _liquidityFee;
 
     IUniswapV2Router02 public uniswapV2Router;
     address public uniswapV2Pair;
@@ -996,22 +996,16 @@ contract ShiborgInuEther is Context, IERC20, Ownable, TokenRecover {
         inSwapAndLiquify = false;
     }
 
-    constructor(address _router) {
+    constructor() {
         _rOwned[_msgSender()] = _rTotal;
 
         buyFee.tax = 2;
         buyFee.liquidity = 8;
-        buyFee.marketing = 0;
-        buyFee.dev = 0;
-        buyFee.donation = 0;
 
         sellFee.tax = 2;
         sellFee.liquidity = 8;
-        sellFee.marketing = 0;
-        sellFee.dev = 0;
-        sellFee.donation = 0;
 
-        IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(_router);
+        IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
         // Create a uniswap pair for this new token        
         uniswapV2Pair = IUniswapV2Factory(_uniswapV2Router.factory()).createPair(address(this), _uniswapV2Router.WETH());
 
@@ -1139,10 +1133,6 @@ contract ShiborgInuEther is Context, IERC20, Ownable, TokenRecover {
         return _tFeeTotal;
     }
 
-    function donationAddress() public view returns (address) {
-        return _donationAddress;
-    }
-
     function deliver(uint256 tAmount) public {
         address sender = _msgSender();
         require(
@@ -1153,16 +1143,12 @@ contract ShiborgInuEther is Context, IERC20, Ownable, TokenRecover {
         (
             ,
             uint256 tFee,
-            uint256 tLiquidity,
-            uint256 tWallet,
-            uint256 tDonation
+            uint256 tLiquidity
         ) = _getTValues(tAmount);
         (uint256 rAmount, , ) = _getRValues(
             tAmount,
             tFee,
             tLiquidity,
-            tWallet,
-            tDonation,
             _getRate()
         );
 
@@ -1181,16 +1167,12 @@ contract ShiborgInuEther is Context, IERC20, Ownable, TokenRecover {
         (
             ,
             uint256 tFee,
-            uint256 tLiquidity,
-            uint256 tWallet,
-            uint256 tDonation
+            uint256 tLiquidity
         ) = _getTValues(tAmount);
         (uint256 rAmount, uint256 rTransferAmount, ) = _getRValues(
             tAmount,
             tFee,
             tLiquidity,
-            tWallet,
-            tDonation,
             _getRate()
         );
 
@@ -1288,57 +1270,32 @@ contract ShiborgInuEther is Context, IERC20, Ownable, TokenRecover {
     }
 
     function setSellFee(
-        uint16 tax,
-        uint16 liquidity,
-        uint16 marketing,
-        uint16 dev,
-        uint16 donation
+        uint8 tax,
+        uint8 liquidity
     ) external onlyOwner {
         sellFee.tax = tax;
-        sellFee.marketing = marketing;
         sellFee.liquidity = liquidity;
-        sellFee.dev = dev;
-        sellFee.donation = donation;
     }
 
     function setBuyFee(
-        uint16 tax,
-        uint16 liquidity,
-        uint16 marketing,
-        uint16 dev,
-        uint16 donation
+        uint8 tax,
+        uint8 liquidity
     ) external onlyOwner {
         buyFee.tax = tax;
-        buyFee.marketing = marketing;
         buyFee.liquidity = liquidity;
-        buyFee.dev = dev;
-        buyFee.donation = donation;
     }
 
     function setBothFees(
-        uint16 buy_tax,
-        uint16 buy_liquidity,
-        uint16 buy_marketing,
-        uint16 buy_dev,
-        uint16 buy_donation,
-        uint16 sell_tax,
-        uint16 sell_liquidity,
-        uint16 sell_marketing,
-        uint16 sell_dev,
-        uint16 sell_donation
-
+        uint8 buy_tax,
+        uint8 buy_liquidity,
+        uint8 sell_tax,
+        uint8 sell_liquidity
     ) external onlyOwner {
         buyFee.tax = buy_tax;
-        buyFee.marketing = buy_marketing;
         buyFee.liquidity = buy_liquidity;
-        buyFee.dev = buy_dev;
-        buyFee.donation = buy_donation;
 
         sellFee.tax = sell_tax;
-        sellFee.marketing = sell_marketing;
         sellFee.liquidity = sell_liquidity;
-        sellFee.dev = sell_dev;
-        sellFee.donation = sell_donation;
     }
 
     function setNumTokensSellToAddToLiquidity(uint256 numTokens) external onlyOwner {
@@ -1375,29 +1332,20 @@ contract ShiborgInuEther is Context, IERC20, Ownable, TokenRecover {
         returns (
             uint256,
             uint256,
-            uint256,
-            uint256,
             uint256
         )
     {
         uint256 tFee = calculateTaxFee(tAmount);
         uint256 tLiquidity = calculateLiquidityFee(tAmount);
-        uint256 tWallet = calculateMarketingFee(tAmount) +
-            calculateDevFee(tAmount);
-        uint256 tDonation = calculateDonationFee(tAmount);
         uint256 tTransferAmount = tAmount.sub(tFee).sub(tLiquidity);
-        tTransferAmount = tTransferAmount.sub(tWallet);
-        tTransferAmount = tTransferAmount.sub(tDonation);
 
-        return (tTransferAmount, tFee, tLiquidity, tWallet, tDonation);
+        return (tTransferAmount, tFee, tLiquidity);
     }
 
     function _getRValues(
         uint256 tAmount,
         uint256 tFee,
         uint256 tLiquidity,
-        uint256 tWallet,
-        uint256 tDonation,
         uint256 currentRate
     )
         private
@@ -1411,13 +1359,9 @@ contract ShiborgInuEther is Context, IERC20, Ownable, TokenRecover {
         uint256 rAmount = tAmount.mul(currentRate);
         uint256 rFee = tFee.mul(currentRate);
         uint256 rLiquidity = tLiquidity.mul(currentRate);
-        uint256 rWallet = tWallet.mul(currentRate);
-        uint256 rDonation = tDonation.mul(currentRate);
         uint256 rTransferAmount = rAmount
             .sub(rFee)
-            .sub(rLiquidity)
-            .sub(rWallet)
-            .sub(rDonation);
+            .sub(rLiquidity);
         return (rAmount, rTransferAmount, rFee);
     }
 
@@ -1449,24 +1393,6 @@ contract ShiborgInuEther is Context, IERC20, Ownable, TokenRecover {
             _tOwned[address(this)] = _tOwned[address(this)].add(tLiquidity);
     }
 
-    function _takeWalletFee(uint256 tWallet) private {
-        uint256 currentRate = _getRate();
-        uint256 rWallet = tWallet.mul(currentRate);
-        _rOwned[address(this)] = _rOwned[address(this)].add(rWallet);
-        if (_isExcluded[address(this)])
-            _tOwned[address(this)] = _tOwned[address(this)].add(tWallet);
-    }
-
-    function _takeDonationFee(uint256 tDonation) private {
-        uint256 currentRate = _getRate();
-        uint256 rDonation = tDonation.mul(currentRate);
-        _rOwned[_donationAddress] = _rOwned[_donationAddress].add(rDonation);
-        if (_isExcluded[_donationAddress])
-            _tOwned[_donationAddress] = _tOwned[_donationAddress].add(
-                tDonation
-            );
-    }
-
     function calculateTaxFee(uint256 _amount) private view returns (uint256) {
         return _amount.mul(_taxFee).div(10**2);
     }
@@ -1479,51 +1405,22 @@ contract ShiborgInuEther is Context, IERC20, Ownable, TokenRecover {
         return _amount.mul(_liquidityFee).div(10**2);
     }
 
-    function calculateMarketingFee(uint256 _amount)
-        private
-        view
-        returns (uint256)
-    {
-        return _amount.mul(_marketingFee).div(10**2);
-    }
-
-    function calculateDonationFee(uint256 _amount)
-        private
-        view
-        returns (uint256)
-    {
-        return _amount.mul(_donationFee).div(10**2);
-    }
-
-    function calculateDevFee(uint256 _amount) private view returns (uint256) {
-        return _amount.mul(_devFee).div(10**2);
-    }
-
     function removeAllFee() private {
         if (_taxFee == 0 && _liquidityFee == 0) return;
 
         _taxFee = 0;
         _liquidityFee = 0;
-        _marketingFee = 0;
-        _donationFee = 0;
-        _devFee = 0;
     }
 
     function setBuy() private {
         _taxFee = buyFee.tax;
         _liquidityFee = buyFee.liquidity;
-        _marketingFee = buyFee.marketing;
-        _donationFee = buyFee.donation;
-        _devFee = buyFee.dev;
         
     }
 
     function setSell() private {
         _taxFee = sellFee.tax;
         _liquidityFee = sellFee.liquidity;
-        _marketingFee = sellFee.marketing;
-        _donationFee = sellFee.donation;
-        _devFee = sellFee.dev;
     }
 
     function isExcludedFromFee(address account) public view returns (bool) {
@@ -1698,24 +1595,18 @@ contract ShiborgInuEther is Context, IERC20, Ownable, TokenRecover {
         (
             uint256 tTransferAmount,
             uint256 tFee,
-            uint256 tLiquidity,
-            uint256 tWallet,
-            uint256 tDonation
+            uint256 tLiquidity
         ) = _getTValues(tAmount);
         (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getRValues(
             tAmount,
             tFee,
             tLiquidity,
-            tWallet,
-            tDonation,
             _getRate()
         );
 
         _rOwned[sender] = _rOwned[sender].sub(rAmount);
         _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
         _takeLiquidity(tLiquidity);
-        _takeWalletFee(tWallet);
-        _takeDonationFee(tDonation);
         _reflectFee(rFee, tFee);
         emit Transfer(sender, recipient, tTransferAmount);
     }
@@ -1729,16 +1620,12 @@ contract ShiborgInuEther is Context, IERC20, Ownable, TokenRecover {
         (
             uint256 tTransferAmount,
             uint256 tFee,
-            uint256 tLiquidity,
-            uint256 tWallet,
-            uint256 tDonation
+            uint256 tLiquidity
         ) = _getTValues(tAmount);
         (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getRValues(
             tAmount,
             tFee,
             tLiquidity,
-            tWallet,
-            tDonation,
             _getRate()
         );
 
@@ -1746,8 +1633,6 @@ contract ShiborgInuEther is Context, IERC20, Ownable, TokenRecover {
         _tOwned[recipient] = _tOwned[recipient].add(tTransferAmount);
         _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
         _takeLiquidity(tLiquidity);
-        _takeWalletFee(tWallet);
-        _takeDonationFee(tDonation);
         _reflectFee(rFee, tFee);
         emit Transfer(sender, recipient, tTransferAmount);
     }
@@ -1760,16 +1645,12 @@ contract ShiborgInuEther is Context, IERC20, Ownable, TokenRecover {
         (
             uint256 tTransferAmount,
             uint256 tFee,
-            uint256 tLiquidity,
-            uint256 tWallet,
-            uint256 tDonation
+            uint256 tLiquidity
         ) = _getTValues(tAmount);
         (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getRValues(
             tAmount,
             tFee,
             tLiquidity,
-            tWallet,
-            tDonation,
             _getRate()
         );
 
@@ -1777,8 +1658,6 @@ contract ShiborgInuEther is Context, IERC20, Ownable, TokenRecover {
         _rOwned[sender] = _rOwned[sender].sub(rAmount);
         _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
         _takeLiquidity(tLiquidity);
-        _takeWalletFee(tWallet);
-        _takeDonationFee(tDonation);
         _reflectFee(rFee, tFee);
         emit Transfer(sender, recipient, tTransferAmount);
     }
@@ -1791,16 +1670,12 @@ contract ShiborgInuEther is Context, IERC20, Ownable, TokenRecover {
         (
             uint256 tTransferAmount,
             uint256 tFee,
-            uint256 tLiquidity,
-            uint256 tWallet,
-            uint256 tDonation
+            uint256 tLiquidity
         ) = _getTValues(tAmount);
         (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getRValues(
             tAmount,
             tFee,
             tLiquidity,
-            tWallet,
-            tDonation,
             _getRate()
         );
 
@@ -1809,8 +1684,6 @@ contract ShiborgInuEther is Context, IERC20, Ownable, TokenRecover {
         _tOwned[recipient] = _tOwned[recipient].add(tTransferAmount);
         _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
         _takeLiquidity(tLiquidity);
-        _takeWalletFee(tWallet);
-        _takeDonationFee(tDonation);
         _reflectFee(rFee, tFee);
         emit Transfer(sender, recipient, tTransferAmount);
     }

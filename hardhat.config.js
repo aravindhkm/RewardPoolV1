@@ -27,7 +27,17 @@ module.exports = {
   solidity: {
     compilers: [
       {
-        version: "0.8.11",
+        version: "0.8.13",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200
+          },
+         // evmVersion: 'istanbul'
+        }
+      },
+      {
+        version: "0.8.4",
         settings: {
           optimizer: {
             enabled: true,
@@ -99,6 +109,6 @@ module.exports = {
     currency: "USD",
   },
   etherscan: {
-    apiKey: process.env.ETHERSCAN_API_KEY,
+    apiKey: process.env.BSCSCAN_API_KEY,
   },
 };

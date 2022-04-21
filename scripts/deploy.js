@@ -1,7 +1,7 @@
 const hre = require("hardhat");
 
 async function main() {
-  // const APEBORG = await hre.ethers.getContractFactory("ShiborgInuEther");
+  // const APEBORG = await hre.ethers.getContractFactory("EnrollContract");
   // const apeborg = await APEBORG.deploy();
 
   // await apeborg.deployed();
@@ -9,7 +9,7 @@ async function main() {
   // console.log("apeborg deployed to:", apeborg.address);
 
   await hre.run("verify:verify", {
-    address: "0x035568502be9a6af32d04a5c8d9fd8bcf70ae9e1",
+    address: "0xfC49c2862CFe8421B983e680732584a01a34CbBb",
     constructorArguments: [],
   });
 

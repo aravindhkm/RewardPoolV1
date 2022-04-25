@@ -1,1 +1,5 @@
 npx hardhat run scripts/divid.js --network testnet
+
+
+
+import "hardhat/console.sol";

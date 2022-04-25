@@ -16,16 +16,22 @@ contract RewardPoolManager is Ownable, Pausable {
     using Address for address payable;
 
     uint256 public maximumDividendContracts = 10;
-    uint256 public createPoolFee = 0.1e18;
+    uint256 public createPoolFee = 0.1e18;    
+    uint256 private minimumBnbBalanceForBuyback = 0.1e18;
+    uint256 private maximumBnbBalanceForBuyback = 10e18;
 
     address payable public tresuryAddress;
     address private implementation;
 
     mapping (address => address) public rewardPoolInfo;
 
-    constructor (address _implementation) {
+
+    address public router;
+
+    constructor (address _implementation,address _router) {
         tresuryAddress = payable(_msgSender());
         implementation = _implementation;
+        router = _router;
     }
 
     receive() external payable{}
@@ -70,6 +76,7 @@ contract RewardPoolManager is Ownable, Pausable {
         address nativeAsset,
         address rewardAsset,
         address projectAdmin,
+        uint256 rewardDistributeShare,
         uint256 minimumTokenBalanceForDividends,
         bool createDistribute
     ) external payable whenNotPaused{
@@ -77,7 +84,7 @@ contract RewardPoolManager is Ownable, Pausable {
         require(rewardPoolInfo[nativeAsset] == address(0), "RewardPoolManager: RewardPool Already Created");
         require(createPoolFee <= msg.value, "RewardPoolManager: Fee is required");
         require(minimumTokenBalanceForDividends != 0, "RewardPoolManager: Invalid minimumTokenBalanceForDividends");
-
+        
         if(createPoolFee != 0) tresuryAddress.sendValue(msg.value); 
                
         RewardPool newRewardPool = new RewardPool(
@@ -90,6 +97,7 @@ contract RewardPoolManager is Ownable, Pausable {
                 implementation,
                 nativeAsset,
                 rewardAsset,
+                rewardDistributeShare,
                 minimumTokenBalanceForDividends
             );
         }
@@ -99,17 +107,18 @@ contract RewardPoolManager is Ownable, Pausable {
     function createRewardDistributor(
         address nativeAsset,
         address rewardAsset,
+        uint256 rewardDistributeShare,
         uint256 minimumTokenBalanceForDividends
     ) external payable whenNotPaused {
         require(nativeAsset != rewardAsset, "RewardPoolManager: Can't be same");
         require(rewardPoolInfo[nativeAsset] != address(0), "RewardPoolManager: RewardPool Still Not Created");
 
         IRewardPool rewardPool = IRewardPool(rewardPoolInfo[nativeAsset]);
-        require(rewardPool.rewardLength() <= maximumDividendContracts, "RewardPoolManager: Dividends Limit Exceed");
-        require(!rewardPool.rewardContains(rewardAsset), "RewardPoolManager: Dividends Already Created");
+        require(rewardPool.getTotalNumberofRewardsDistributor() <= maximumDividendContracts, "RewardPoolManager: Dividends Limit Exceed");
+        require(!rewardPool.rewardsDistributorContains(rewardAsset), "RewardPoolManager: Dividends Already Created");
         require(createPoolFee <= msg.value, "RewardPoolManager: Fee is required");
         require(minimumTokenBalanceForDividends != 0, "RewardPoolManager: Invalid minimumTokenBalanceForDividends");
-        require(rewardPool.dividendTrackerInfo(rewardAsset) == address(0), "RewardPoolManager: RewardDistributor is not created");
+        require(rewardPool.getRewardsDistributor(rewardAsset) == address(0xdEaD), "RewardPoolManager: RewardDistributor is not created");
 
         if(createPoolFee != 0) tresuryAddress.sendValue(msg.value);
 
@@ -117,36 +126,9 @@ contract RewardPoolManager is Ownable, Pausable {
             implementation,
             nativeAsset,
             rewardAsset,
+            rewardDistributeShare,
             minimumTokenBalanceForDividends
         );
-    }
-
-    function enroll(
-        address nativeAsset,
-        address rewardAsset,
-        address account
-    ) external whenNotPaused {
-        IRewardPool rewardPool = IRewardPool(rewardPoolInfo[nativeAsset]);
-        require(rewardPool.rewardContains(rewardAsset), "RewardPoolManager: Dividends is not Created");
-
-        rewardPool.setBalance(IRewardDistributor(rewardPool.dividendTrackerInfo(rewardAsset)),account);
-    }
-
-    function multipleEnRoll(
-        address nativeAsset,
-        address rewardAsset,
-        address[] calldata accounts
-    ) external whenNotPaused {     
-        IRewardPool rewardPool = IRewardPool(rewardPoolInfo[nativeAsset]);
-        require(rewardPool.rewardContains(rewardAsset), "RewardPoolManager: Dividends is not Created");
-
-        address dividend = rewardPool.dividendTrackerInfo(rewardAsset);
-        for(uint256 i; i<accounts.length; i++) {
-            rewardPool.setBalance(
-                IRewardDistributor(dividend),
-                accounts[i]
-            );
-        }
     }
 
     function multicall(
@@ -154,5 +136,20 @@ contract RewardPoolManager is Ownable, Pausable {
         bytes calldata _data
     ) external onlyOwner {
         Address.functionCall(_implementation, _data);
+    }
+
+    function  setMinMaxBnbBalanceForBuyback(uint256 newMinValue,uint256 newMaxValue) external onlyOwner {
+        require(newMinValue != 0 && newMaxValue != 0, "RewardDistributor: Can't be zero");
+        require(newMinValue < newMaxValue, "RewardDistributor: Invalid Amount");
+
+        minimumBnbBalanceForBuyback = newMinValue;
+        maximumBnbBalanceForBuyback = newMaxValue;
+    }
+
+    function buyBackRidge() external view returns (uint256 _minimumBnbBalanceForBuyback,uint256 _maximumBnbBalanceForBuyback) {
+        return (
+            minimumBnbBalanceForBuyback,
+            maximumBnbBalanceForBuyback
+        );
     }
 }

@@ -2,6 +2,8 @@
 
 pragma solidity 0.8.13;
 
+import "hardhat/console.sol";
+
 import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
@@ -24,8 +26,8 @@ contract DividendPayingToken is  ERC20Upgradeable, OwnableUpgradeable, DividendP
   using SafeMathUint for uint256;
   using SafeMathInt for int256;
 
-  address public nativeAsset;
-  address public rewardAsset; 
+  IERC20 public nativeAsset;
+  IERC20 public rewardAsset; 
 
 
   // With `magnitude`, we can properly distribute dividends even if the amount of received ether is small.
@@ -55,17 +57,20 @@ contract DividendPayingToken is  ERC20Upgradeable, OwnableUpgradeable, DividendP
         __ERC20_init(_name, _symbol);
         __Ownable_init();
 
-        nativeAsset = _nativeAsset;
-        rewardAsset = _rewardAsset;
+        nativeAsset = IERC20(_nativeAsset);
+        rewardAsset = IERC20(_rewardAsset);
     }
 
-  function distributeDividends(uint256 amount) public onlyOwner{
-    require(totalSupply() > 0);
+  function distributeRewards(uint256 amount) public onlyOwner{
+    if(totalSupply() < 0) return;
 
+
+    console.log("distributeRewards hello", totalSupply(),amount);
     if (amount > 0) {
       magnifiedDividendPerShare = magnifiedDividendPerShare.add(
         (amount).mul(magnitude) / totalSupply()
       );
+       console.log("magnifiedDividendPerShare", magnifiedDividendPerShare);
       emit DividendsDistributed(msg.sender, amount);
 
       totalDividendsDistributed = totalDividendsDistributed.add(amount);
@@ -85,7 +90,7 @@ contract DividendPayingToken is  ERC20Upgradeable, OwnableUpgradeable, DividendP
     if (_withdrawableDividend > 0) {
       withdrawnDividends[user] = withdrawnDividends[user].add(_withdrawableDividend);
       emit DividendWithdrawn(user, _withdrawableDividend);
-      bool success = IERC20(rewardAsset).transfer(user, _withdrawableDividend);
+      bool success = rewardAsset.transfer(user, _withdrawableDividend);
 
       if(!success) {
         withdrawnDividends[user] = withdrawnDividends[user].sub(_withdrawableDividend);
@@ -120,6 +125,19 @@ contract DividendPayingToken is  ERC20Upgradeable, OwnableUpgradeable, DividendP
     return withdrawnDividends[_owner];
   }
 
+ uint256 i;
+  function accumulativeDividendOf2(address _owner) public returns(uint256) {
+    i=1;
+    console.log(
+      "view",
+      magnifiedDividendPerShare
+      // magnifiedDividendCorrections[_owner],
+      // magnitude
+    );
+    return magnifiedDividendPerShare.mul(balanceOf(_owner)).toInt256Safe()
+      .add(magnifiedDividendCorrections[_owner]).toUint256Safe() / magnitude;
+  }
+
 
   /// @notice View the amount of dividend in wei that an address has earned in total.
   /// @dev accumulativeDividendOf(_owner) = withdrawableDividendOf(_owner) + withdrawnDividendOf(_owner)
@@ -152,7 +170,7 @@ contract DividendPayingToken is  ERC20Upgradeable, OwnableUpgradeable, DividendP
     super._mint(account, value);
 
     magnifiedDividendCorrections[account] = magnifiedDividendCorrections[account]
-      .sub( (magnifiedDividendPerShare.mul(value)).toInt256Safe() );
+      .sub((magnifiedDividendPerShare.mul(value)).toInt256Safe());
   }
 
   /// @dev Internal function that burns an amount of the token of a given account.

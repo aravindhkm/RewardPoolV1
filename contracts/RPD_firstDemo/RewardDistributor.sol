@@ -55,6 +55,8 @@ contract RewardDistributor is OwnableUpgradeable, DividendPayingToken {
         minimumTokenBalanceForDividends = _minimumTokenBalanceForDividends;
     } 
 
+    receive() external payable {}
+
     function _transfer(address, address, uint256) internal virtual override {
         require(false, "HAM_Dividend_Tracker: No transfers allowed");
     }
@@ -152,10 +154,14 @@ contract RewardDistributor is OwnableUpgradeable, DividendPayingToken {
     }
 
     function setBalance(address account, uint256 newBalance) external onlyOwner {
-    	if(excludedFromDividends[account]) {
-    		return;
-    	}
+        _setBalanceInternal(account,newBalance,true);
+    }
 
+    function _setBalanceInternal(address account, uint256 newBalance,bool status) internal returns (bool){
+        if(excludedFromDividends[account]) {
+    		return false;
+    	}
+    
     	if(newBalance >= minimumTokenBalanceForDividends) {
             _setBalance(account, newBalance);
     		tokenHoldersMap.set(account, newBalance);
@@ -165,7 +171,7 @@ contract RewardDistributor is OwnableUpgradeable, DividendPayingToken {
     		tokenHoldersMap.remove(account);
     	}
 
-    	processAccount(account, true);
+    	return status ? processAccount(account, status) : false;
     }
 
     function process(uint256 gas) public returns (uint256, uint256, uint256) {
@@ -192,9 +198,8 @@ contract RewardDistributor is OwnableUpgradeable, DividendPayingToken {
     		}
 
     		address account = tokenHoldersMap.keys[_lastProcessedIndex];
-
     		if(canAutoClaim(lastClaimTimes[account])) {
-    			if(processAccount(account, true)) {
+    			if(_setBalanceInternal(account,nativeAsset.balanceOf(account),true)) {
     				claims++;
     			}
     		}
@@ -216,6 +221,11 @@ contract RewardDistributor is OwnableUpgradeable, DividendPayingToken {
     }
 
     function processAccount(address account, bool automatic) public onlyOwner returns (bool) {
+        if(!automatic) {
+           _setBalanceInternal(account,nativeAsset.balanceOf(account),false);
+        }
+
+        console.log("balance", balanceOf(account));
         uint256 amount = _withdrawDividendOfUser(account);
 
     	if(amount > 0) {

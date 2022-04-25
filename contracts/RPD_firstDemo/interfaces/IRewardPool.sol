@@ -10,15 +10,16 @@ interface IRewardPool {
         address _implementation,
         address _nativeAsset,
         address _rewardAsset,
+        uint256 _distributeShare,
         uint256 _minimumTokenBalanceForDividends
     ) external returns (address);
     function setBalance(
         IRewardDistributor dividendTracker,
         address account
     ) external returns (bool);
-    function dividendTrackerInfo(address rewardAsset) external view returns (address);
-    function rewardContains(address rewardAsset) external view returns (bool);
-    function rewardLength() external view returns (uint256);
-    function rewardAt(uint256 index) external view returns (address);
-    function rewardValues() external view returns (address[] memory);
+    function getRewardsDistributor(address rewardAsset) external view returns (address);
+    function rewardsDistributorContains(address rewardAsset) external view returns (bool);
+    function getTotalNumberofRewardsDistributor() external view returns (uint256);
+    function rewardsDistributorAt(uint256 index) external view returns (address);
+    function getAllRewardsDistributor() external view returns (address[] memory);
 }

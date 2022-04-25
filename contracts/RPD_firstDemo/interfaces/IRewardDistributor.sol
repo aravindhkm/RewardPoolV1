@@ -1,5 +1,3 @@
-
-
 // SPDX-License-Identifier: MIT
 
 pragma solidity 0.8.13;
@@ -16,7 +14,7 @@ interface IRewardDistributor {
     function getLastProcessedIndex() external view returns(uint256);
     function getNumberOfTokenHolders() external view returns(uint256);
     function setBalance(address account, uint256 newBalance) external;
-    function distributeDividends(uint256 amount) external;
+    function distributeRewards(uint256 amount) external;
     function getAccount(address _account) external view returns (
             address account,
             int256 index,

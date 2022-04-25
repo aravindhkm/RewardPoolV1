@@ -1,25 +1,33 @@
 const hre = require("hardhat");
 
 async function main() {
-  // const APEBORG = await hre.ethers.getContractFactory("TOKENDividendTracker");
-  // const apeborg = await APEBORG.deploy();
 
-  // await apeborg.deployed();
-
-  // console.log("apeborg deployed to:", apeborg.address);
-
-  await hre.run("verify:verify", {
-    address: "0x14C9C3148b55daC74d31e682405e3265daf02089",
-    constructorArguments: ["0x273FCf8957467b8B6B058a15f1c46bE91a3d342D"],
-  });
-
+  // distributor
   // await hre.run("verify:verify", {
-  //   address: "0x273FCf8957467b8B6B058a15f1c46bE91a3d342D",
+  //   address: "0xA2Ccfdc844E6dA4721597c63e3b6Bff78922c8fd",
   //   constructorArguments: [],
   //   libraries: {
-  //       IterableMapping: "0xf46427d1F4C28258e559f1C1Af716457f0A94777"
+  //       IterableMapping: "0x4668635559d12e0e18aeF9F564Ff4DF726c03774"
   //     },
   // });
+
+ // manager 
+  // const manager = await hre.ethers.getContractFactory("RewardPoolManager");
+  // const managerInstance = await manager.deploy("0xA2Ccfdc844E6dA4721597c63e3b6Bff78922c8fd");
+  // await managerInstance.deployed();
+  // console.log("apeborg deployed to:", managerInstance.address); 
+  //  await hre.run("verify:verify", {
+  //   address: managerInstance.address,
+  //   constructorArguments: ["0xA2Ccfdc844E6dA4721597c63e3b6Bff78922c8fd"],
+  // });
+
+
+  // reward pool
+
+   await hre.run("verify:verify", {
+    address: "0xbFA7B694A61e9E610FC8Dad38a9957f3e73e6ff7",
+    constructorArguments: ["0x6F240078CD4B64B328a8828b4A6Fbba837Bbd506","0xdCecd5D2DB01C1d22a1238F57D62d7F86Faa1CA6"],
+  });
 
 }
 main().catch((error) => {

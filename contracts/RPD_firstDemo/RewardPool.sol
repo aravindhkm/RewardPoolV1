@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 
 pragma solidity 0.8.13;
-import "hardhat/console.sol";
 
 import "./RewardDistributor.sol";
 import "./interfaces/IRewardPool.sol";
@@ -15,6 +14,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 import "@openzeppelin/contracts/security/Pausable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
@@ -60,16 +60,17 @@ contract RewardPool is Ownable, Pausable {
         require(_projectAdmin != address(0), "RewardDistributor: projectAdmin can't be zero");
         _transferOwnership(_projectAdmin);  
 
-        nativeAsset = _nativeAsset;
         rewardPoolManager = IRewardPoolManager(_msgSender());                 
+        nativeAsset = _nativeAsset;
 
         // Mainnet
         // uniswapV2Router = IUniswapV2Router02(0x10ED43C718714eb63d5aA57B78B54704E256024E);
 
         // Testnet
-        uniswapV2Router = IUniswapV2Router02(rewardPoolManager.router());
+        uniswapV2Router = IUniswapV2Router02(0x9Ac64Cc6e4415144C455BD8E4837Fea55603e5c3);
         uniswapV2Pair = IUniswapV2Factory(uniswapV2Router.factory()).getPair(uniswapV2Router.WETH(),_nativeAsset);
-       _rewardStoreId[deadWallet] = uint8(_rewardInfo.length);
+
+        _rewardStoreId[deadWallet] = uint8(_rewardInfo.length);
         _rewardInfo.push(
             rewardStore({
                 rewardAsset: deadWallet,
@@ -178,6 +179,7 @@ contract RewardPool is Ownable, Pausable {
     }
 
     function updateClaimWait(IRewardDistributor rewardsDistributor,uint256 claimWait) external onlyOwner {
+        require(claimWait >= 3600 && claimWait <= 86400, "RewardDistributor: claimWait must be updated to between 1 and 24 hours");
         rewardsDistributor.updateClaimWait(claimWait);
     }
 
@@ -193,10 +195,6 @@ contract RewardPool is Ownable, Pausable {
     	return rewardsDistributor.withdrawableDividendOf(account);
   	}
 
-	function dividendTokenBalanceOf(IRewardDistributor rewardsDistributor,address account) public view returns (uint256) {
-		return rewardsDistributor.balanceOf(account);
-	}
-
 	function excludeFromDividends(IRewardDistributor rewardsDistributor,address account) external onlyOwner{
 	    rewardsDistributor.excludeFromDividends(account);
 	}
@@ -209,7 +207,6 @@ contract RewardPool is Ownable, Pausable {
             uint256,
             uint256,
             uint256,
-            uint256,
             uint256) {
         return rewardsDistributor.getAccount(account);
     }
@@ -219,7 +216,6 @@ contract RewardPool is Ownable, Pausable {
             address,
             int256,
             int256,
-            uint256,
             uint256,
             uint256,
             uint256,
@@ -237,7 +233,7 @@ contract RewardPool is Ownable, Pausable {
         );
     }
 
-    function multipleEnRollForSingleReward(
+    function multipleAccountEnRollForSingleReward(
         address rewardAsset,
         address[] calldata accounts
     ) external whenNotPaused {     
@@ -259,7 +255,7 @@ contract RewardPool is Ownable, Pausable {
         }        
     }
 
-    function multipleEnRollForAllReward(
+    function multipleAccountEnRollForAllReward(
         address[] calldata accounts
     ) external whenNotPaused { 
         for(uint8 i=1; i<_rewardInfo.length; i++) {
@@ -389,9 +385,5 @@ contract RewardPool is Ownable, Pausable {
         for(uint8 i=1; i<_rewardInfo.length; i++) {
             rewardDistributors[i] = _rewardInfo[i].rewardDistributor;
         }
-    }
-
-    function bnbBalance() external view returns (uint256) {
-        return address(this).balance;
     }
 }

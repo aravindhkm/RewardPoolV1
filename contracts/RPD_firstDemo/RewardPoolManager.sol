@@ -25,13 +25,9 @@ contract RewardPoolManager is Ownable, Pausable {
 
     mapping (address => address) public rewardPoolInfo;
 
-
-    address public router;
-
-    constructor (address _implementation,address _router) {
+    constructor (address _implementation) {
         tresuryAddress = payable(_msgSender());
         implementation = _implementation;
-        router = _router;
     }
 
     receive() external payable{}
@@ -84,7 +80,7 @@ contract RewardPoolManager is Ownable, Pausable {
         require(rewardPoolInfo[nativeAsset] == address(0), "RewardPoolManager: RewardPool Already Created");
         require(createPoolFee <= msg.value, "RewardPoolManager: Fee is required");
         require(minimumTokenBalanceForDividends != 0, "RewardPoolManager: Invalid minimumTokenBalanceForDividends");
-        
+
         if(createPoolFee != 0) tresuryAddress.sendValue(msg.value); 
                
         RewardPool newRewardPool = new RewardPool(

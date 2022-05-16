@@ -36,16 +36,16 @@ module.exports = {
          // evmVersion: 'istanbul'
         }
       },
-      {
-        version: "0.8.4",
-        settings: {
-          optimizer: {
-            enabled: true,
-            runs: 200
-          },
-         // evmVersion: 'istanbul'
-        }
-      },
+      // {
+      //   version: "0.8.4",
+      //   settings: {
+      //     optimizer: {
+      //       enabled: true,
+      //       runs: 200
+      //     },
+      //    // evmVersion: 'istanbul'
+      //   }
+      // },
       {
         version: "0.6.6",
         settings: {

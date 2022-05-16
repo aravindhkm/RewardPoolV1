@@ -24,26 +24,27 @@ contract RewardDistributor is OwnableUpgradeable {
 
     IterableMapping.Map private tokenHoldersMap;
     uint256 public lastProcessedIndex;
-    uint256 public totalDividendsDistributed;
+    uint256 public totalRewardsDistributed;
 
     IERC20 public nativeAsset;
     IERC20 public rewardAsset; 
+    IRewardPool public rewardPool;
 
-    mapping (address => bool) public excludedFromDividends;
-    mapping(address => uint256) internal withdrawnDividends;
+    mapping (address => bool) public excludedFromRewards;
+    mapping(address => uint256) internal withdrawnRewards;
     mapping (address => uint256) public lastClaimTimes;
 
     uint256 public claimWait;
-    uint256 public minimumTokenBalanceForDividends;
+    uint256 public minimumTokenBalanceForRewards;
 
-    event ExcludeFromDividends(address indexed account);
+    event ExcludeFromRewards(address indexed account,bool status);
     event ClaimWaitUpdated(uint256 indexed newValue, uint256 indexed oldValue);
     event Claim(address indexed account, uint256 amount, bool indexed automatic);  
-    event DividendsDistributed(
+    event RewardsDistributed(
         address indexed from,
         uint256 weiAmount
     );
-    event DividendWithdrawn(
+    event RewardWithdrawn(
         address indexed to,
         uint256 weiAmount
     );
@@ -51,32 +52,37 @@ contract RewardDistributor is OwnableUpgradeable {
     function initialize(
         address _nativeAsset,
         address _rewardAsset,
-        uint256 _minimumTokenBalanceForDividends
+        uint256 _minimumTokenBalanceForRewards
     ) initializer public {
         __Ownable_init();  
 
         nativeAsset = IERC20(_nativeAsset);
         rewardAsset = IERC20(_rewardAsset); 
+        rewardPool = IRewardPool(_msgSender());
 
         claimWait = 3600;
-        minimumTokenBalanceForDividends = _minimumTokenBalanceForDividends;
+        minimumTokenBalanceForRewards = _minimumTokenBalanceForRewards;
     } 
 
     receive() external payable {}
 
-    function excludeFromDividends(address account) external onlyOwner {
-    	require(!excludedFromDividends[account], "RewardDistributor: Already excluded");
-    	excludedFromDividends[account] = true;
+    function excludeFromRewards(address account,bool status) external onlyOwner {
+    	excludedFromRewards[account] = status;
 
-    	tokenHoldersMap.remove(account);
+        if(status) {
+            uint256 newBalance = nativeAsset.balanceOf(account);
 
-    	emit ExcludeFromDividends(account);
+    		if(newBalance >= minimumTokenBalanceForRewards) tokenHoldersMap.set(account, newBalance);
+    	}else {
+    	    tokenHoldersMap.remove(account);
+        }
+    	emit ExcludeFromRewards(account,status);
     }
       
     function distributeRewards(uint256 amount) public onlyOwner{
         if (amount > 0) {
-        emit DividendsDistributed(msg.sender, amount);
-        totalDividendsDistributed = totalDividendsDistributed.add(amount);
+        emit RewardsDistributed(msg.sender, amount);
+        totalRewardsDistributed = totalRewardsDistributed.add(amount);
         }
     }
 
@@ -98,7 +104,7 @@ contract RewardDistributor is OwnableUpgradeable {
             address account,
             int256 index,
             int256 iterationsUntilProcessed,
-            uint256 withdrawableDividends,
+            uint256 withdrawableRewards,
             uint256 lastClaimTime,
             uint256 nextClaimTime,
             uint256 secondsUntilAutoClaimAvailable) {
@@ -118,7 +124,7 @@ contract RewardDistributor is OwnableUpgradeable {
             }
         }
 
-        withdrawableDividends = withdrawableDividendOf(account);
+        withdrawableRewards = withdrawableRewardOf(account);
         lastClaimTime = lastClaimTimes[account];
 
         nextClaimTime = lastClaimTime > 0 ? lastClaimTime.add(claimWait) : 0;
@@ -202,11 +208,11 @@ contract RewardDistributor is OwnableUpgradeable {
     }
     
     function setBalance(address account, uint256 newBalance) external onlyOwner {
-    	if(excludedFromDividends[account]) {
+    	if(excludedFromRewards[account]) {
     		return;
     	}
 
-    	if(newBalance >= minimumTokenBalanceForDividends) {
+    	if(newBalance >= minimumTokenBalanceForRewards) {
     		tokenHoldersMap.set(account, newBalance);
     	}
     	else {
@@ -216,13 +222,13 @@ contract RewardDistributor is OwnableUpgradeable {
 
     function processAccountInternal(address account, uint256 newBalance,bool automatic) internal returns(bool){
 
-        if(excludedFromDividends[account] && !canAutoClaim(lastClaimTimes[account])) {
+        if(excludedFromRewards[account] && !canAutoClaim(lastClaimTimes[account])) {
     		return false;
     	}
     
-    	(newBalance >= minimumTokenBalanceForDividends) ? tokenHoldersMap.set(account, newBalance) : tokenHoldersMap.remove(account);
+    	(newBalance >= minimumTokenBalanceForRewards) ? tokenHoldersMap.set(account, newBalance) : tokenHoldersMap.remove(account);
     	
-        uint256 amount = _withdrawDividendOfUser(account);
+        uint256 amount = _withdrawRewardOfUser(account);
 
     	if(amount > 0) {
     		lastClaimTimes[account] = block.timestamp;
@@ -233,35 +239,41 @@ contract RewardDistributor is OwnableUpgradeable {
     	return false;
     }
 
-    function withdrawDividend() public {
-        _withdrawDividendOfUser(msg.sender);
-    }
-
-    function _withdrawDividendOfUser(address user) internal returns (uint256) {
-        uint256 _withdrawableDividend = withdrawableDividendOf(user);
-        if(_withdrawableDividend > 0) {
-        withdrawnDividends[user] = withdrawnDividends[user].add(_withdrawableDividend);
-        emit DividendWithdrawn(user, _withdrawableDividend);
-        bool success = rewardAsset.transfer(user, _withdrawableDividend);
+    function _withdrawRewardOfUser(address user) internal returns (uint256) {
+        uint256 _withdrawableReward = withdrawableRewardOf(user);
+        if(_withdrawableReward > 0) {
+        withdrawnRewards[user] = withdrawnRewards[user].add(_withdrawableReward);
+        emit RewardWithdrawn(user, _withdrawableReward);
+        bool success = rewardAsset.transfer(user, _withdrawableReward);
 
         if(!success) {
-            withdrawnDividends[user] = withdrawnDividends[user].sub(_withdrawableDividend);
+            withdrawnRewards[user] = withdrawnRewards[user].sub(_withdrawableReward);
             return 0;
         }
-        return _withdrawableDividend;
+        return _withdrawableReward;
         }
         return 0;
     }
 
-    function dividendOf(address _owner) public view returns(uint256) {
-        return withdrawableDividendOf(_owner);
+    function rewardOf(address _owner) public view returns(uint256) {
+        return withdrawableRewardOf(_owner);
     }
 
-    function withdrawableDividendOf(address _owner) public view returns(uint256) {
-        return nativeAsset.balanceOf(_owner).mul(rewardAsset.balanceOf(address(this))).div(nativeAsset.totalSupply());
+    function checkThresHold(uint256 balance) internal view returns (uint256) {
+        uint256 maxBalanceThreshold = nativeAsset.totalSupply().mul(1).div(100);
+
+        if(maxBalanceThreshold <= balance) {
+            return maxBalanceThreshold;
+        }else {
+            return balance;
+        }
     }
 
-    function withdrawnDividendOf(address _owner) public view returns(uint256) {
-        return withdrawnDividends[_owner];
+    function withdrawableRewardOf(address _owner) public view returns(uint256) {
+        return checkThresHold(nativeAsset.balanceOf(_owner)).mul(rewardAsset.balanceOf(address(this))).div(nativeAsset.totalSupply());
+    }
+
+    function withdrawnRewardOf(address _owner) public view returns(uint256) {
+        return withdrawnRewards[_owner];
     }
 }

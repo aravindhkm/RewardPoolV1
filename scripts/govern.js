@@ -10,7 +10,7 @@ async function main() {
   let poolContract;
 
 
-  // const mapping = await hre.ethers.getContractFactory("IterableMapping");
+  // const mapping = await hre.ethers.getContractFactory("MyToken");
   // const IterableMapping = await mapping.deploy();
   // await IterableMapping.deployed();
   // iterableMappingContract = IterableMapping.address;
@@ -19,6 +19,19 @@ async function main() {
   //   address: iterableMappingContract,
   //   constructorArguments: [],
   // });
+
+
+  //   const mapping = await hre.ethers.getContractFactory("MyGovernor");
+  // const IterableMapping = await mapping.deploy();
+  // await IterableMapping.deployed();
+  // iterableMappingContract = IterableMapping.address;
+  // console.log("IterableMapping deployed to:", IterableMapping.address); 
+  //  await hre.run("verify:verify", {
+  //   address: iterableMappingContract,
+  //   constructorArguments: [],
+  // });
+
+
 
   // const distributor = await hre.ethers.getContractFactory("RewardDistributor", {
   //   libraries: {
@@ -60,7 +73,7 @@ async function main() {
   // reward pool
 
    await hre.run("verify:verify", {
-    address: "0x0AA6ec112Ea7CEd3A920833Cae66f5A7424eFabF",
+    address: "0x9B530121e0E1F6152364C5A742A029743A7A84C0",
     constructorArguments: [],
   });
 

@@ -10,6 +10,7 @@ import "./interfaces/IUniswapV2Router02.sol";
 import "./interfaces/IRewardDistributor.sol";
 import "./library/IterableMapping.sol";
 import "./library/SafeMathInt.sol";
+import "./library/SafeMathUint.sol";
 import "./RewardDistributor.sol";
 import "@openzeppelin/contracts/proxy/Clones.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -18,8 +19,9 @@ import "@openzeppelin/contracts/security/Pausable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract RewardPool is ERC20, Ownable, Pausable {
-    using SafeMathInt for int256;
-    using SafeMath for uint256;
+    using SafeMath for uint256;   
+    using SafeMathInt for int256; 
+    using SafeMathUint for uint256;
     using IterableMapping for IterableMapping.Map;
 
     IUniswapV2Router02 public uniswapV2Router;
@@ -32,6 +34,7 @@ contract RewardPool is ERC20, Ownable, Pausable {
     uint256 public defaultMinimumTokenBalanceForRewards = 1000 * (10 ** 18);
     uint256 private minimumBnbBalanceForBuyback = 10;
     uint256 private maximumBnbBalanceForBuyback = 80;
+    uint256 constant internal magnitude = 2**128;
 
     uint256 private constant distributeSharePrecision = 100;
     uint256 public gasForProcessing;
@@ -45,14 +48,22 @@ contract RewardPool is ERC20, Ownable, Pausable {
         uint256 claimWait;
         uint256 lastProcessedIndex;
         uint256 minimumTokenBalanceForRewards;
+        uint256 magnifiedRewardPerShare;
+        uint256 totalRewardsDistributed;
         bool isActive;
+    }
+
+    struct distributeStore {
+        uint256 lastClaimTimes;
+        int256 magnifiedRewardCorrections;
+        uint256 withdrawnRewards;
     }
 
     IterableMapping.Map private tokenHoldersMap;
     rewardStore[] private _rewardInfo;
-    mapping (address => uint8) private _rewardStoreId;    
-    mapping (address => mapping(address => bool)) public excludedFromRewards;
-    mapping (address => mapping(address => uint256)) public lastClaimTimes;
+    mapping (address => uint8) private _rewardStoreId; 
+    mapping (bytes32 => distributeStore) private _distributeInfo; 
+    mapping (address => bool) private excludedFromRewards;
 
     event UpdateUniswapV2Router(address indexed newAddress, address indexed oldAddress);
     event ExcludeFromFees(address indexed account, bool isExcluded);
@@ -67,7 +78,7 @@ contract RewardPool is ERC20, Ownable, Pausable {
     constructor(
         address _nativeAsset,
         address _projectAdmin
-    ) {
+    )  ERC20("Gold_Reward_Tracker", "GRT") {
         require(_projectAdmin != address(0), "RewardDistributor: projectAdmin can't be zero");
         _transferOwnership(_projectAdmin);  
 
@@ -135,17 +146,19 @@ contract RewardPool is ERC20, Ownable, Pausable {
                 claimWait: _claimWait,
                 lastProcessedIndex : _lastProcessedIndex,
                 minimumTokenBalanceForRewards : _minimumTokenBalanceForRewards,
+                magnifiedRewardPerShare : 0,
+                totalRewardsDistributed : 0,
                 isActive: true
             })
         ); 
 
         // exclude from receiving rewards
-        excludedFromRewards[_rewardAsset][(address(newRewardsDistributor))] = false;
-        excludedFromRewards[_rewardAsset][(address(this))] = false;
-        excludedFromRewards[_rewardAsset][owner()] = false;
-        excludedFromRewards[_rewardAsset][deadWallet] = false;
-        excludedFromRewards[_rewardAsset][address(uniswapV2Router)] = false;
-        excludedFromRewards[_rewardAsset][address(uniswapV2Pair)] = false;
+        excludedFromRewards[(address(newRewardsDistributor))] = false;
+        excludedFromRewards[(address(this))] = false;
+        excludedFromRewards[owner()] = false;
+        excludedFromRewards[deadWallet] = false;
+        excludedFromRewards[address(uniswapV2Router)] = false;
+        excludedFromRewards[address(uniswapV2Pair)] = false;
 
         return address(newRewardsDistributor);
     }
@@ -229,35 +242,23 @@ contract RewardPool is ERC20, Ownable, Pausable {
     	return rewardsDistributor.withdrawableRewardOf(account);
   	}
 
-	function excludeFromRewards(address rewardToken,address account) external onlyOwner{
-	    excludedFromRewards[rewardToken][account] = true;
+	function excludeFromRewards(address account) external onlyOwner{
+        excludedFromRewards[account] = true;
 	}
 
-    function includeFromRewards(address rewardToken,address account) external onlyOwner{
-	    excludedFromRewards[rewardToken][account] = false;
+    function includeFromRewards(address account) external onlyOwner{
+        excludedFromRewards[account] = false;
 	}
 
     function multiExcludeFromRewards(address[] calldata accounts) external onlyOwner{
-        for(uint8 k; k<_rewardInfo.length; k++) {
-            if(!_rewardInfo[k].isActive) {
-                continue;
-            }
-            address rewardToken = _rewardInfo[k].rewardAsset;
-            for(uint8 i; i<accounts.length; i++) {   
-                excludedFromRewards[rewardToken][accounts[i]] = true;          
-            }
+        for(uint8 i; i<accounts.length; i++) {   
+             excludedFromRewards[accounts[i]] = true;       
         }
 	}
 
     function multiIncludeFromRewards(address[] calldata accounts) external onlyOwner{
-        for(uint8 k; k<_rewardInfo.length; k++) {
-            if(!_rewardInfo[k].isActive) {
-                continue;
-            }
-            address rewardToken = _rewardInfo[k].rewardAsset;
-            for(uint8 i; i<accounts.length; i++) {   
-                excludedFromRewards[rewardToken][accounts[i]] = false;          
-            }
+        for(uint8 i; i<accounts.length; i++) {                         
+            excludedFromRewards[accounts[i]] = false;  
         }
 	}
 
@@ -333,7 +334,7 @@ contract RewardPool is ERC20, Ownable, Pausable {
     }
 
      function claim() external {
-		_processAccount(msg.sender, false);
+		//_processAccount(msg.sender, false);
     }
 
     function canAutoClaim(uint256 claimWait,uint256 lastClaimTime) private view returns (bool) {
@@ -361,62 +362,58 @@ contract RewardPool is ERC20, Ownable, Pausable {
     	_processAccount(account, true);
     }
 
-    function autoDistribute() external returns (uint256, uint256, uint256) {
-        uint256 gas = gasForProcessing;
-    	uint256 numberOfTokenHolders = tokenHoldersMap.keys.length;
+    // function autoDistribute() external returns (uint256, uint256, uint256) {
+    //     uint256 gas = gasForProcessing;
+    // 	uint256 numberOfTokenHolders = tokenHoldersMap.keys.length;
 
-    	if(numberOfTokenHolders == 0) {
-    		return (0, 0, lastProcessedIndex);
-    	}
+    // 	if(numberOfTokenHolders == 0) {
+    // 		return (0, 0, lastProcessedIndex);
+    // 	}
 
-    	uint256 _lastProcessedIndex = lastProcessedIndex;
+    // 	uint256 _lastProcessedIndex = lastProcessedIndex;
 
-    	uint256 gasUsed = 0;
+    // 	uint256 gasUsed = 0;
 
-    	uint256 gasLeft = gasleft();
+    // 	uint256 gasLeft = gasleft();
 
-    	uint256 iterations = 0;
-    	uint256 claims = 0;
+    // 	uint256 iterations = 0;
+    // 	uint256 claims = 0;
 
-    	while(gasUsed < gas && iterations < numberOfTokenHolders) {
-    		_lastProcessedIndex++;
+    // 	while(gasUsed < gas && iterations < numberOfTokenHolders) {
+    // 		_lastProcessedIndex++;
 
-    		if(_lastProcessedIndex >= tokenHoldersMap.keys.length) {
-    			_lastProcessedIndex = 0;
-    		}
+    // 		if(_lastProcessedIndex >= tokenHoldersMap.keys.length) {
+    // 			_lastProcessedIndex = 0;
+    // 		}
 
-    		address account = tokenHoldersMap.keys[_lastProcessedIndex];
+    // 		address account = tokenHoldersMap.keys[_lastProcessedIndex];
 
-    		if(canAutoClaim(lastClaimTimes[account])) {
-    			if(_processAccount(account, true)) {
-    				claims++;
-    			}
-    		}
+    // 		if(canAutoClaim(lastClaimTimes[account])) {
+    // 			if(_processAccount(account, true)) {
+    // 				claims++;
+    // 			}
+    // 		}
 
-    		iterations++;
+    // 		iterations++;
 
-    		uint256 newGasLeft = gasleft();
+    // 		uint256 newGasLeft = gasleft();
 
-    		if(gasLeft > newGasLeft) {
-    			gasUsed = gasUsed.add(gasLeft.sub(newGasLeft));
-    		}
+    // 		if(gasLeft > newGasLeft) {
+    // 			gasUsed = gasUsed.add(gasLeft.sub(newGasLeft));
+    // 		}
 
-    		gasLeft = newGasLeft;
-    	}
+    // 		gasLeft = newGasLeft;
+    // 	}
 
-    	lastProcessedIndex = _lastProcessedIndex;
+    // 	lastProcessedIndex = _lastProcessedIndex;
 
-    	return (iterations, claims, lastProcessedIndex);
-    }
+    // 	return (iterations, claims, lastProcessedIndex);
+    // }
 
     function _processAccount(address account, bool automatic) internal returns (bool) {
-        uint256 amount = _withdrawRewardsOfUser(account);
-
-    	if(amount > 0) {
-    		lastClaimTimes[account] = block.timestamp;
-            emit Claim(account, amount, automatic);
-    		return true;
-    	}
+        for(uint8 i;i<_rewardInfo.length;i++) {
+            _withdrawRewardsOfUser(_rewardInfo[i].rewardAsset,account);
+        }        	
 
     	return false;
     }
@@ -425,12 +422,75 @@ contract RewardPool is ERC20, Ownable, Pausable {
         uint256 currentBalance = balanceOf(account);
 
         if(newBalance > currentBalance) {
-        uint256 mintAmount = newBalance.sub(currentBalance);
-        _mint(account, mintAmount);
+            uint256 mintAmount = newBalance.sub(currentBalance);
+            _mint(account, mintAmount);
+            _setMintBalance(account,mintAmount);
         } else if(newBalance < currentBalance) {
-        uint256 burnAmount = currentBalance.sub(newBalance);
-        _burn(account, burnAmount);
+            uint256 burnAmount = currentBalance.sub(newBalance);
+            _burn(account, burnAmount);
+            _setBurnBalance(account,burnAmount);
         }
+    }
+
+    function _setMintBalance(address account,uint256 mintAmount) internal {
+        for(uint8 i;i<_rewardInfo.length;i++) {
+            bytes32 slot = getDistributeSlot(_rewardInfo[i].rewardAsset,account);
+            _distributeInfo[slot].magnifiedRewardCorrections = _distributeInfo[slot].magnifiedRewardCorrections.sub(
+                (_rewardInfo[i].magnifiedRewardPerShare.mul(mintAmount)).toInt256Safe()
+            );
+        }
+    }
+
+    function _setBurnBalance(address account,uint256 burnAmount) internal {
+        for(uint8 i;i<_rewardInfo.length;i++) {
+            bytes32 slot = getDistributeSlot(_rewardInfo[i].rewardAsset,account);
+            _distributeInfo[slot].magnifiedRewardCorrections = _distributeInfo[slot].magnifiedRewardCorrections.add(
+                (_rewardInfo[i].magnifiedRewardPerShare.mul(burnAmount)).toInt256Safe()
+            );
+        }
+    }
+
+    function _withdrawRewardsOfUser(address reward,address user) internal returns (uint256) {
+        bytes32 slot = getDistributeSlot(reward,user);
+        uint256 _withdrawableReward = withdrawableRewardOf(
+                                        _rewardInfo[_rewardStoreId[reward]].magnifiedRewardPerShare,
+                                        slot,
+                                        balanceOf(user)
+                                        );
+        if (_withdrawableReward > 0) {
+        _distributeInfo[slot].withdrawnRewards = _distributeInfo[slot].withdrawnRewards.add(_withdrawableReward);
+       // emit RewardWithdrawn(user, _withdrawableReward);
+       // bool success = IERC20(rewardToken).transfer(user, _withdrawableReward);
+
+        // if(!success) {
+        //     withdrawnRewards[user] = withdrawnRewards[user].sub(_withdrawableReward);
+        //     return 0;
+        // }
+
+            _distributeInfo[slot].lastClaimTimes = block.timestamp;
+           // emit Claim(account, amount, automatic);
+
+            return _withdrawableReward;
+        }
+
+        return 0;
+    }
+
+    function rewardOf(address reward,address account) external view returns(uint256) {
+        return withdrawableRewardOf(
+            _rewardInfo[_rewardStoreId[reward]].magnifiedRewardPerShare,
+            getDistributeSlot(reward,account),
+            balanceOf(account));
+    }
+
+    function withdrawableRewardOf(uint256 magnifiedRewardPerShare,bytes32 slot,uint256 balance) public view returns(uint256) {
+        return (magnifiedRewardPerShare.mul(balance).toInt256Safe()
+        .add(_distributeInfo[slot].magnifiedRewardCorrections).toUint256Safe() / magnitude
+        ).sub(_distributeInfo[slot].withdrawnRewards);
+    }
+
+    function withdrawnRewardOf(address reward,address user) external view returns(uint256) {
+        return _distributeInfo[getDistributeSlot(reward,user)].withdrawnRewards;
     }
 
     function swapBNBForReward(address rewardAsset,uint256 bnbAmount) private {
@@ -500,5 +560,11 @@ contract RewardPool is ERC20, Ownable, Pausable {
         for(uint8 i; i<_rewardInfo.length; i++) {
             rewardDistributors[i] = _rewardInfo[i].rewardDistributor;
         }
+    }
+
+    function getDistributeSlot(address rewardToken,address user) internal pure returns (bytes32) {
+        return (
+            keccak256(abi.encode(rewardToken,user))
+        );
     }
 }

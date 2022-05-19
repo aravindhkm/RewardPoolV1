@@ -9,7 +9,6 @@ const LpPair = artifacts.require("PancakePair");
 const IterableMapping = artifacts.require("IterableMapping");
 const distributor = artifacts.require("RewardDistributor");
 const rewardPool = artifacts.require("RewardPool");
-const manager = artifacts.require("RewardPoolManager");
 
 contract("Token Gas Reduce", (accounts) => {
   const zeroAddress = "0x0000000000000000000000000000000000000000";
@@ -22,7 +21,6 @@ contract("Token Gas Reduce", (accounts) => {
       iterableMapping = await IterableMapping.new();
       distributor.link(iterableMapping);
       distributorInstance = await distributor.new();
-      managerInstance = await manager.new(distributorInstance.address,pancakeRouterInstance.address);
 
       busdInstance = await token.new();
       daiInstance = await token.new();
@@ -128,48 +126,48 @@ contract("Token Gas Reduce", (accounts) => {
 
       }); 
 
-      it("buyback", async function () {
-        let user1 = accounts[1];
-        let amount = "10000000000";
-        let pool = await managerInstance.rewardPoolInfo(neggInstance.address);
-        let poolInstance = await rewardPool.at(pool);
-        let dividend = await poolInstance.getRewardsDistributor(busdInstance.address);
-        let dividendInstance = await distributor.at(dividend);
+      // it("buyback", async function () {
+      //   let user1 = accounts[1];
+      //   let amount = "10000000000";
+      //   let pool = await managerInstance.rewardPoolInfo(neggInstance.address);
+      //   let poolInstance = await rewardPool.at(pool);
+      //   let dividend = await poolInstance.getRewardsDistributor(busdInstance.address);
+      //   let dividendInstance = await distributor.at(dividend);
 
-        await web3.eth.sendTransaction({from: owner, to: poolInstance.address, value: 10e18 });
+      //   await web3.eth.sendTransaction({from: owner, to: poolInstance.address, value: 10e18 });
 
-        console.log("bnbBalance", Number(await poolInstance.bnbBalance()));
+      //   console.log("bnbBalance", Number(await poolInstance.bnbBalance()));
 
-        console.log("getNumberOfTokenHolders2", Number(await dividendInstance.getNumberOfTokenHolders()));
+      //   console.log("getNumberOfTokenHolders2", Number(await dividendInstance.getNumberOfTokenHolders()));
 
-        console.log("before busd balance", Number(await busdInstance.balanceOf(dividendInstance.address)));
+      //   console.log("before busd balance", Number(await busdInstance.balanceOf(dividendInstance.address)));
 
-        await poolInstance.generateBuyBack("10000000000000000000", {from: owner});
+      //   await poolInstance.generateBuyBack("10000000000000000000", {from: owner});
 
-        console.log("after busd balance", String(await busdInstance.balanceOf(dividendInstance.address)));
-      });  
+      //   console.log("after busd balance", String(await busdInstance.balanceOf(dividendInstance.address)));
+      // });  
 
-      it("claim", async function () {
-        let user1 = accounts[2];
-        let amount = "10000000000";
-        let pool = await managerInstance.rewardPoolInfo(neggInstance.address);
-        let poolInstance = await rewardPool.at(pool);
-        let dividend = await poolInstance.getRewardsDistributor(busdInstance.address);
-        let dividendInstance = await distributor.at(dividend);
+      // it("claim", async function () {
+      //   let user1 = accounts[2];
+      //   let amount = "10000000000";
+      //   let pool = await managerInstance.rewardPoolInfo(neggInstance.address);
+      //   let poolInstance = await rewardPool.at(pool);
+      //   let dividend = await poolInstance.getRewardsDistributor(busdInstance.address);
+      //   let dividendInstance = await distributor.at(dividend);
 
 
-        console.log("getNumberOfTokenHolders2", Number(await dividendInstance.getNumberOfTokenHolders()));
+      //   console.log("getNumberOfTokenHolders2", Number(await dividendInstance.getNumberOfTokenHolders()));
 
-        console.log("before busd balance", Number(await busdInstance.balanceOf(user1)));
+      //   console.log("before busd balance", Number(await busdInstance.balanceOf(user1)));
 
-        await poolInstance.multipleRewardClaim( {from: user1});
+      //   await poolInstance.multipleRewardClaim( {from: user1});
 
-        let result = await dividendInstance.accumulativeDividendOf2(user1);
+      //   let result = await dividendInstance.accumulativeDividendOf2(user1);
 
-        console.log("after busd balance", String(await busdInstance.balanceOf(user1)));
+      //   console.log("after busd balance", String(await busdInstance.balanceOf(user1)));
 
-        console.log("result", String(result));
-      });  
+      //   console.log("result", String(result));
+      // });  
   })
 
 })

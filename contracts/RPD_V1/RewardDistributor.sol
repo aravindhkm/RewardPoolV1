@@ -27,10 +27,12 @@ contract RewardDistributor is Ownable {
         _;
     }
 
-    function distributeReward(address account,uint256 amount) external onlyOperator{
+    function distributeReward(address account,uint256 amount) external onlyOperator returns (bool){
         rewardToken.transfer(account, amount);
 
-        totalRewardsDistributed = totalRewardsDistributed.add(amount);      
+        totalRewardsDistributed = totalRewardsDistributed.add(amount); 
+
+        return true;     
     }
     function recoverLeftOverBNB(uint256 amount) external onlyOwner {
         payable(owner()).sendValue(amount);

@@ -12,30 +12,31 @@ import "./library/IterableMapping.sol";
 import "./library/SafeMathInt.sol";
 import "./library/SafeMathUint.sol";
 import "./RewardDistributor.sol";
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
-import "@openzeppelin/contracts/security/Pausable.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract RewardPool is ERC20, Ownable, Pausable {
+import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+
+contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, OwnableUpgradeable {
     using SafeMath for uint256;   
     using SafeMathInt for int256; 
     using SafeMathUint for uint256;
     using IterableMapping for IterableMapping.Map;
 
     IUniswapV2Router02 public uniswapV2Router;
-
     address public uniswapV2Pair;
+    
     address public nativeAsset;
     address public constant deadWallet = 0x000000000000000000000000000000000000dEaD; 
-    uint256 public buyBackClaimWait = 86400;
-    uint256 public lastBuyBackTimestamp;
-    uint256 public defaultMinimumTokenBalanceForRewards = 1000 * (10 ** 18);
-    uint256 private minimumBnbBalanceForBuyback = 10;
-    uint256 private maximumBnbBalanceForBuyback = 80;
-    uint256 constant internal magnitude = 2**128;
+    uint256 internal constant magnitude = 2**128;
     uint256 private constant distributeSharePrecision = 100;
+    uint256 public buyBackClaimWait;
+    uint256 public lastBuyBackTimestamp;
+    uint256 public defaultMinimumTokenBalanceForRewards;
+    uint256 private minimumBnbBalanceForBuyback;
+    uint256 private maximumBnbBalanceForBuyback;
     uint256 public gasForProcessing;
     uint8 public totalRewardDistributor;
 
@@ -74,35 +75,39 @@ contract RewardPool is ERC20, Ownable, Pausable {
     event SendRewards(uint256 tokensSwapped,uint256 amount);
     event Claim(address indexed account, uint256 amount, bool indexed automatic); 
     event RewardsDistributed(address indexed from,uint256 weiAmount);
+    event RewardWithdrawn(address indexed to,uint256 weiAmount,bool status);
     event ProcessedDistributorTracker(uint256 iterations,uint256 claims,uint256 lastProcessedIndex,bool indexed automatic,uint256 gas,address indexed processor);
 
-    constructor(
-        address _nativeAsset,
-        address _projectAdmin
-    )  ERC20("Gold_Reward_Tracker", "GRT") {
-        require(_projectAdmin != address(0), "RewardDistributor: projectAdmin can't be zero");
-        _transferOwnership(_projectAdmin);  
+    receive() external payable {}
+
+    function initialize(address _nativeAsset) initializer public {
+        __ERC20_init("Gold_Reward_Tracker", "GRT");
+        __Pausable_init();
+        __Ownable_init();
 
         nativeAsset = _nativeAsset;
+        buyBackClaimWait = 86400;
+        minimumBnbBalanceForBuyback = 10;
+        maximumBnbBalanceForBuyback = 80;
+        defaultMinimumTokenBalanceForRewards = 100 * (10 ** 18);
+        gasForProcessing = 300000;
 
-        // Mainnet
         // uniswapV2Router = IUniswapV2Router02(0x10ED43C718714eb63d5aA57B78B54704E256024E);
 
         // Testnet
         uniswapV2Router = IUniswapV2Router02(0x9Ac64Cc6e4415144C455BD8E4837Fea55603e5c3);
         uniswapV2Pair = IUniswapV2Factory(uniswapV2Router.factory()).getPair(uniswapV2Router.WETH(),_nativeAsset);
-    }
 
-    receive() external payable {}
+        excludedFromRewards[(address(this))] = true;
+        excludedFromRewards[owner()] = true;
+        excludedFromRewards[deadWallet] = true;
+        excludedFromRewards[address(uniswapV2Router)] = true;
+        excludedFromRewards[address(uniswapV2Pair)] = true;
+    }
 
     modifier onlyOperator() {
         require((msg.sender == owner()) || 
                 (msg.sender == nativeAsset), "unable to access");
-        _;
-    }
-
-    modifier authorized() {
-        require(msg.sender == address(this), "requireSelfCall");
         _;
     }
 
@@ -112,6 +117,28 @@ contract RewardPool is ERC20, Ownable, Pausable {
 
     function unpause() public onlyOwner {
         _unpause();
+    }
+
+    function _transfer(address, address, uint256) internal override pure {
+        require(false, "No transfers allowed");
+    }
+
+    function setDefaultMinimumTokenBalanceForRewards(uint256 newValue) external onlyOwner {
+        defaultMinimumTokenBalanceForRewards = newValue;
+    }
+
+    function setMinimumTokenBalanceForRewards(address reward,uint256 newValue) external onlyOwner {
+        _rewardInfo[reward].minimumTokenBalanceForRewards = newValue;
+    }
+
+    function setMultipleMinimumTokenBalanceForRewards(
+        address[] memory rewards,uint256[] memory newValues
+    ) external onlyOwner {
+        require(rewards.length == newValues.length, "RewardPool: Invalid Param Passed");
+
+        for(uint8 i;i<rewards.length; i++){
+            _rewardInfo[rewards[i]].minimumTokenBalanceForRewards = newValues[i];
+        }
     }
 
     function validateDistributeShare(uint256 newShare) public view returns (bool) {
@@ -136,11 +163,11 @@ contract RewardPool is ERC20, Ownable, Pausable {
         address _rewardToken,
         uint256 _distributeShare,
         uint256 _claimWait,
-        uint256 _lastProcessedIndex,
         uint256 _minimumTokenBalanceForRewards
     ) external onlyOwner returns (address){
         require(validateDistributeShare(_distributeShare), "RewardPool: DistributeShare is invalid");
-        require(_rewardInfo[_rewardToken].rewardDistributor == address(0), "RewardPool: RewardDistributor is already v");
+        require(_rewardInfo[_rewardToken].rewardDistributor == address(0), "RewardPool: RewardDistributor is already exist");
+        require(totalRewardDistributor < 9, "RewardPool: Reward token limit exceed");
 
         RewardDistributor newRewardsDistributor = new RewardDistributor(_rewardToken);
 
@@ -150,7 +177,7 @@ contract RewardPool is ERC20, Ownable, Pausable {
                 rewardDistributor: address(newRewardsDistributor),
                 distributeShare: _distributeShare,
                 claimWait: _claimWait,
-                lastProcessedIndex : _lastProcessedIndex,
+                lastProcessedIndex : 0,
                 minimumTokenBalanceForRewards : _minimumTokenBalanceForRewards,
                 magnifiedRewardPerShare : 0,
                 totalRewardsDistributed : 0,
@@ -160,14 +187,16 @@ contract RewardPool is ERC20, Ownable, Pausable {
         totalRewardDistributor++;
 
         // exclude from receiving rewards
-        excludedFromRewards[(address(newRewardsDistributor))] = false;
-        excludedFromRewards[(address(this))] = false;
-        excludedFromRewards[owner()] = false;
-        excludedFromRewards[deadWallet] = false;
-        excludedFromRewards[address(uniswapV2Router)] = false;
-        excludedFromRewards[address(uniswapV2Pair)] = false;
+        excludedFromRewards[(address(newRewardsDistributor))] = true;
 
         return address(newRewardsDistributor);
+    }
+
+    function updateRewardDistributor(address rewardToken,address newRewardsDistributor) external onlyOwner {
+        require(_rewardInfo[rewardToken].rewardDistributor != address(0), "RewardPool: Reward is not exist");
+
+        _rewardInfo[rewardToken].rewardDistributor = newRewardsDistributor;
+        excludedFromRewards[(address(newRewardsDistributor))] = true;
     }
 
     function setRewardActiveStatus(address rewardAsset,bool status) external onlyOwner {
@@ -226,10 +255,12 @@ contract RewardPool is ERC20, Ownable, Pausable {
     }
 
     function updateDexStore(address newRouter) public onlyOwner {
-        require(newRouter != address(uniswapV2Router), "RewardPool: The router already has that address");
         emit UpdateUniswapV2Router(newRouter, address(uniswapV2Router));
         uniswapV2Router = IUniswapV2Router02(newRouter);
         uniswapV2Pair = IUniswapV2Factory(uniswapV2Router.factory()).getPair(uniswapV2Router.WETH(),nativeAsset);
+
+        excludedFromRewards[address(uniswapV2Router)] = true;
+        excludedFromRewards[address(uniswapV2Pair)] = true;
     }
 
     function updateGasForProcessing(uint256 newValue) public onlyOwner {
@@ -372,28 +403,24 @@ contract RewardPool is ERC20, Ownable, Pausable {
 
     function singleRewardClaimByUser(address rewardToken) external whenNotPaused{
         require(_rewardInfo[rewardToken].isActive, "RewardPool: Pool is not active");
-		this.processAccount(_msgSender(), false);
+        _withdrawRewardsOfUser(rewardToken,_msgSender(),false);
     }
 
     function multipleRewardClaimByUser() external whenNotPaused{
         address user = _msgSender();
-        for(uint8 i; i<totalRewardDistributor; i++) {
-            if(_rewardInfo[_rewardAsset[i]].isActive) {               
-		        this.processAccount(user, false);
+        for(uint8 i;i<totalRewardDistributor;i++) {
+            if(_rewardInfo[_rewardAsset[i]].isActive) { 
+                _withdrawRewardsOfUser(_rewardAsset[i],user,false);
             }
-        }
+        }  
     }
 
     function getLastProcessedIndex(address rewardToken) external view returns(uint256) {
     	return _rewardInfo[rewardToken].lastProcessedIndex;
     }
 
-    function getNumberOfRewardTokenHolders() external view returns(uint256) {
+    function getNumberOfTokenHolders() external view returns(uint256) {
         return tokenHoldersMap.keys.length;
-    }
-
-    function claim() external {
-		this.processAccount(msg.sender, false);
     }
 
     function canAutoClaim(uint256 claimWait,uint256 lastClaimTime) private view returns (bool) {
@@ -408,7 +435,6 @@ contract RewardPool is ERC20, Ownable, Pausable {
     	if(excludedFromRewards[account]) {
     		return;
     	}
-
     	if(newBalance >= defaultMinimumTokenBalanceForRewards) {
     		tokenHoldersMap.set(account, newBalance);
             _setBalance(account, newBalance);
@@ -464,13 +490,6 @@ contract RewardPool is ERC20, Ownable, Pausable {
     	return (iterations, claims, _rewardInfo[rewardToken].lastProcessedIndex);
     }
 
-    function processAccount(address account, bool automatic) external authorized returns (bool) {
-        for(uint8 i;i<totalRewardDistributor;i++) {
-            _withdrawRewardsOfUser(_rewardAsset[i],account,automatic);
-        }       	
-    	return true;
-    }
-
     function _setBalance(address account, uint256 newBalance) internal {
         uint256 currentBalance = balanceOf(account);
 
@@ -505,7 +524,8 @@ contract RewardPool is ERC20, Ownable, Pausable {
 
     function _withdrawRewardsOfUser(address reward,address account,bool automatic) internal returns (bool) {
         bytes32 slot = getDistributeSlot(reward,account);
-        if(!canAutoClaim(_rewardInfo[reward].claimWait,_distributeInfo[slot].lastClaimTimes)) {
+        if(!(canAutoClaim(_rewardInfo[reward].claimWait,_distributeInfo[slot].lastClaimTimes)) ||
+            _rewardInfo[reward].minimumTokenBalanceForRewards > balanceOf(account)) {
             return false;
         }
         uint256 _withdrawableReward = _withdrawableRewardOf(
@@ -516,14 +536,13 @@ contract RewardPool is ERC20, Ownable, Pausable {
         if (_withdrawableReward > 0) {
             _distributeInfo[slot].withdrawnRewards = _distributeInfo[slot].withdrawnRewards.add(_withdrawableReward);
 
-            IRewardDistributor(_rewardInfo[reward].rewardDistributor).distributeReward(account,_withdrawableReward);
-        // emit RewardWithdrawn(user, _withdrawableReward);
-       // bool success = IERC20(rewardToken).transfer(user, _withdrawableReward);
+            bool success = IRewardDistributor(_rewardInfo[reward].rewardDistributor).distributeReward(account,_withdrawableReward);
+            emit RewardWithdrawn(account, _withdrawableReward,success);
 
-        // if(!success) {
-        //     withdrawnRewards[user] = withdrawnRewards[user].sub(_withdrawableReward);
-        //     return 0;
-        // }
+            if(!success) {
+                _distributeInfo[slot].withdrawnRewards =  _distributeInfo[slot].withdrawnRewards.sub(_withdrawableReward);
+                return false;
+            }
 
             _distributeInfo[slot].lastClaimTimes = block.timestamp;
             emit Claim(account, _withdrawableReward, automatic);
@@ -674,5 +693,9 @@ contract RewardPool is ERC20, Ownable, Pausable {
             _distributeInfo[slot].magnifiedRewardCorrections,
             _distributeInfo[slot].withdrawnRewards
         );
+    }
+
+    function bnbBalance() external view returns (uint256) {
+        return (address(this).balance);
     }
 }

@@ -38,12 +38,4 @@ contract MyToken is Initializable, ERC20Upgradeable, OwnableUpgradeable {
             rewardPool.setBalance(to, balanceOf(to));  
         }  
     }
-
-    function recoverLeftOverBNB(uint256 amount) external onlyOwner {
-        payable(owner()).transfer(amount);
-    }
-
-    function recoverLeftOverToken(address token,uint256 amount) external onlyOwner {
-        IERC20(token).transfer(owner(),amount);
-    }
 }

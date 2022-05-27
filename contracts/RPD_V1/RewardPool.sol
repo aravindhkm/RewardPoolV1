@@ -11,10 +11,10 @@ import "./interfaces/IRewardDistributor.sol";
 import "./library/IterableMapping.sol";
 import "./library/SafeMathInt.sol";
 import "./library/SafeMathUint.sol";
+import "./ERC20/ERC20Upgradeable.sol";
 import "./RewardDistributor.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
-import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -31,12 +31,12 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
     address public nativeAsset;
     address public constant deadWallet = 0x000000000000000000000000000000000000dEaD; 
     uint256 internal constant magnitude = 2**128;
-    uint256 private constant distributeSharePrecision = 100;
-    uint256 public buyBackClaimWait;
+    uint256 internal constant distributeSharePrecision = 100;
+    uint256 public buyBackWait;
     uint256 public lastBuyBackTimestamp;
     uint256 public defaultMinimumTokenBalanceForRewards;
-    uint256 private minimumBnbBalanceForBuyback;
-    uint256 private maximumBnbBalanceForBuyback;
+    uint256 public minimumBnbBalanceForBuyback;
+    uint256 public maximumBnbBalanceForBuyback;
     uint256 public gasForProcessing;
     uint8 public totalRewardDistributor;
 
@@ -80,13 +80,19 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
 
     receive() external payable {}
 
+    modifier onlyOperator() {
+        require((msg.sender == owner()) || 
+                (msg.sender == nativeAsset), "unable to access");
+        _;
+    }
+
     function initialize(address _nativeAsset) initializer public {
         __ERC20_init("Gold_Reward_Tracker", "GRT");
         __Pausable_init();
         __Ownable_init();
 
         nativeAsset = _nativeAsset;
-        buyBackClaimWait = 86400;
+        buyBackWait = 86400;
         minimumBnbBalanceForBuyback = 10;
         maximumBnbBalanceForBuyback = 80;
         defaultMinimumTokenBalanceForRewards = 100 * (10 ** 18);
@@ -98,17 +104,11 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
         uniswapV2Router = IUniswapV2Router02(0x9Ac64Cc6e4415144C455BD8E4837Fea55603e5c3);
         uniswapV2Pair = IUniswapV2Factory(uniswapV2Router.factory()).getPair(uniswapV2Router.WETH(),_nativeAsset);
 
-        excludedFromRewards[(address(this))] = true;
-        excludedFromRewards[owner()] = true;
-        excludedFromRewards[deadWallet] = true;
-        excludedFromRewards[address(uniswapV2Router)] = true;
-        excludedFromRewards[address(uniswapV2Pair)] = true;
-    }
-
-    modifier onlyOperator() {
-        require((msg.sender == owner()) || 
-                (msg.sender == nativeAsset), "unable to access");
-        _;
+        _excludedFromRewards(address(this),true);
+        _excludedFromRewards(owner(),true);
+        _excludedFromRewards(deadWallet,true);
+        _excludedFromRewards(address(uniswapV2Router),true);
+        _excludedFromRewards(address(uniswapV2Pair),true);
     }
 
     function pause() public onlyOwner {
@@ -119,8 +119,20 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
         _unpause();
     }
 
-    function _transfer(address, address, uint256) internal override pure {
-        require(false, "No transfers allowed");
+    function recoverLeftOverBNB(uint256 amount) external onlyOwner {
+        payable(owner()).transfer(amount);
+    }
+
+    function recoverLeftOverToken(address token,uint256 amount) external onlyOwner {
+        IERC20(token).transfer(owner(),amount);
+    }
+
+    function setBalanceForBuyback(uint256 newMinValue,uint256 newMaxValue) external onlyOwner {
+        require(newMinValue != 0 && newMaxValue != 0, "RewardPool: Can't be zero");
+        require(newMinValue < newMaxValue, "RewardPool: Invalid Amount");
+
+        minimumBnbBalanceForBuyback = newMinValue;
+        maximumBnbBalanceForBuyback = newMaxValue;
     }
 
     function setDefaultMinimumTokenBalanceForRewards(uint256 newValue) external onlyOwner {
@@ -129,16 +141,6 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
 
     function setMinimumTokenBalanceForRewards(address reward,uint256 newValue) external onlyOwner {
         _rewardInfo[reward].minimumTokenBalanceForRewards = newValue;
-    }
-
-    function setMultipleMinimumTokenBalanceForRewards(
-        address[] memory rewards,uint256[] memory newValues
-    ) external onlyOwner {
-        require(rewards.length == newValues.length, "RewardPool: Invalid Param Passed");
-
-        for(uint8 i;i<rewards.length; i++){
-            _rewardInfo[rewards[i]].minimumTokenBalanceForRewards = newValues[i];
-        }
     }
 
     function validateDistributeShare(uint256 newShare) public view returns (bool) {
@@ -155,8 +157,8 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
         require(validateDistributeShare(0), "RewardPool: DistributeShare is invalid");
     }
 
-    function setBuyBackClaimWait(uint256 newClaimWait) external onlyOwner {
-        buyBackClaimWait = newClaimWait;
+    function setBuyBackWait(uint256 newClaimWait) external onlyOwner {
+        buyBackWait = newClaimWait;
     }
 
     function createRewardDistributor(
@@ -187,7 +189,7 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
         totalRewardDistributor++;
 
         // exclude from receiving rewards
-        excludedFromRewards[(address(newRewardsDistributor))] = true;
+        _excludedFromRewards((address(newRewardsDistributor)),true);
 
         return address(newRewardsDistributor);
     }
@@ -196,7 +198,7 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
         require(_rewardInfo[rewardToken].rewardDistributor != address(0), "RewardPool: Reward is not exist");
 
         _rewardInfo[rewardToken].rewardDistributor = newRewardsDistributor;
-        excludedFromRewards[(address(newRewardsDistributor))] = true;
+        _excludedFromRewards((address(newRewardsDistributor)),true);
     }
 
     function setRewardActiveStatus(address rewardAsset,bool status) external onlyOwner {
@@ -209,7 +211,7 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
     }
 
     function generateBuyBackForOpen() external whenNotPaused {
-        require(lastBuyBackTimestamp.add(buyBackClaimWait) < block.timestamp, "RewardPool: buybackclaim still not over");
+        require(lastBuyBackTimestamp.add(buyBackWait) < block.timestamp, "RewardPool: buybackclaim still not over");
 
         uint256 initialBalance = address(this).balance;
 
@@ -230,7 +232,7 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
     }
 
     function generateBuyBack(uint256 buyBackAmount) external whenNotPaused onlyOwner {
-        require(lastBuyBackTimestamp.add(buyBackClaimWait) < block.timestamp, "RewardPool: buybackclaim still not over");
+        require(lastBuyBackTimestamp.add(buyBackWait) < block.timestamp, "RewardPool: buybackclaim still not over");
 
         uint256 initialBalance = address(this).balance;
 
@@ -254,13 +256,12 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
         }
     }
 
-    function updateDexStore(address newRouter) public onlyOwner {
-        emit UpdateUniswapV2Router(newRouter, address(uniswapV2Router));
-        uniswapV2Router = IUniswapV2Router02(newRouter);
+    function setPair() public onlyOwner {
+        require(address(uniswapV2Pair) == address(0), "RewardPool: Pair is already updated");
         uniswapV2Pair = IUniswapV2Factory(uniswapV2Router.factory()).getPair(uniswapV2Router.WETH(),nativeAsset);
 
-        excludedFromRewards[address(uniswapV2Router)] = true;
-        excludedFromRewards[address(uniswapV2Pair)] = true;
+        _excludedFromRewards(address(uniswapV2Router),true);
+        _excludedFromRewards(address(uniswapV2Pair),true);
     }
 
     function updateGasForProcessing(uint256 newValue) public onlyOwner {
@@ -291,24 +292,25 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
         return IRewardDistributor(_rewardInfo[reward].rewardDistributor).totalRewardsDistributed();
     }
 
+    function _excludedFromRewards(address account,bool status) internal {
+        excludedFromRewards[account] = status;
+
+        if(status) {
+            tokenHoldersMap.remove(account);
+            _setBalance(account, 0);
+        }else {
+            uint256 newBalance = IERC20(nativeAsset).balanceOf(account);
+            tokenHoldersMap.set(account, newBalance);
+            _setBalance(account, newBalance);
+        }
+    }
+
 	function excludeFromRewards(address account) external onlyOwner{
-        excludedFromRewards[account] = true;
+        _excludedFromRewards(account,true);
 	}
 
     function includeFromRewards(address account) external onlyOwner{
-        excludedFromRewards[account] = false;
-	}
-
-    function multiExcludeFromRewards(address[] calldata accounts) external onlyOwner{
-        for(uint8 i; i<accounts.length; i++) {   
-             excludedFromRewards[accounts[i]] = true;       
-        }
-	}
-
-    function multiIncludeFromRewards(address[] calldata accounts) external onlyOwner{
-        for(uint8 i; i<accounts.length; i++) {                         
-            excludedFromRewards[accounts[i]] = false;  
-        }
+       _excludedFromRewards(account,false);
 	}
     	
     function getAccount(address reward,address _account)
@@ -590,7 +592,7 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
         );
     }
 
-    function swapAndSendReward(address rewardAsset,uint256 bnbAmount) private{
+    function swapAndSendReward(address rewardAsset,uint256 bnbAmount) internal {
         swapBNBForReward(rewardAsset,bnbAmount);
         uint256 rewards = IERC20(rewardAsset).balanceOf(address(this));
         bool success = IERC20(rewardAsset).transfer(_rewardInfo[rewardAsset].rewardDistributor, rewards);
@@ -697,5 +699,13 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
 
     function bnbBalance() external view returns (uint256) {
         return (address(this).balance);
+    }
+
+    function isExcludedFromFees(address account) external view returns(bool) {
+        return excludedFromRewards[account];
+    }
+
+    function rewardAssetAt(uint8 index) external view returns (address) {
+        return _rewardAsset[index];
     }
 }

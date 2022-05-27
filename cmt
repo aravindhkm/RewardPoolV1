@@ -1,7 +1,5 @@
 npx hardhat run scripts/deploy.js --network testnet
 
-npx hardhat run scripts/govern.js --network testnet
-
 
 
 import "hardhat/console.sol";

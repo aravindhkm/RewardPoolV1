@@ -1,0 +1,72 @@
+Native token : MTK
+Reward1 (RBTC) : 0xf6d0285D1c52083d9C4d39fa10D7E6696d244B81
+Reward2 (RETH) : 0xb78Dcb571C1d19616C29AD85C9807F9d4754bE82
+
+RBTC Traceker Balance: 2,247.92251720164689136 
+RETH Tracker Balance: 49,085.93612842278848189
+
+
+Below is the list of current balances,  After we run distribute function, the below reward token balances should increase.
+
+Before distributing, I would like to check what are the withdrawable tokens to the below wallet addressess.  Account 1 is getting more .   Account 1 should get only 1% of total supply max
+
+Account : 1  
+
+Wallet: 0x62775Bc010f10B815364d560F0518cdd3689D87b
+MTK: 89996367  (Holding %: 89.9964%) :  
+RBTC: 8696.18722
+RETH:  960860
+
+First Claim:
+RBTC: 2023.0493402709
+RETH: 44175.57542188
+
+Account : 2
+
+wallet: 0xeb3dA16603d0bF4100c7F7Feb784bbcc65d0Dd36
+MTK : 2508  (Holding %: 0.0025%)
+RBTC: 9.09781
+RETH:  38,000
+
+First Claim:
+RBTC:0.056198062930041
+RETH:1.2271484032106
+
+
+Account : 3
+wallet: 0xAd6FDD4fd7682E8eb51d65c88BD3Cf4b4191312D
+MTK: 1000 (Holding %: 0.0010%)
+RBTC: 152.53804
+RETH : 0
+
+
+First Claim:
+RBTC: 0.022479225172016
+RETH: 0.49085936128423
+
+
+Account : 4
+wallet: 0x945451565e03EFb96Ca64b15F35909f756CaD2c5
+MTK:  0
+RBTC: 124.42968
+RETH: 0
+
+
+Account : 5
+wallet: 0xea714c03A6949f6521602684cFa191Efd5a6c3F2
+MTK: 0
+RBTC: 17.05172
+RETH: 0
+
+Account : 6
+walelt: 0x349b355c41B7B941118eAffeE95f64dC763C9A0d
+MTK: 125 (Holding % :0.0001%)
+RBTC: 0
+RETH: 149
+
+
+First Claim:
+RBTC: 0.0022479225172016
+RETH: 0.049085936128423
+
+Account 7: 0x98396ff397f78350bd40ee70972b47a929e5cfe7  (This is excluded in the rewards)

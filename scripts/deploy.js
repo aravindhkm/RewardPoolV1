@@ -2,9 +2,9 @@ const hre = require("hardhat");
 
 async function main() {
 
-  let iterableMappingContract = "0x67aEc08501DfaB2dBAE861F500a0C80C86bF90Fa";
-  let rewardPool = "0x23f60FDbd138235b95f663a4163cb9260098B7D3";
-  let goldTokenContract = "0x3787D16F9F2e4adf598355C4ff4800b3500d57fA";
+  let iterableMappingContract = "";
+  let rewardPool = "";
+  let goldTokenContract = "";
   let tokenProxyContract  = "";
   let poolProxyContract = "";
   let callDataForToken = "0xc4d66de800000000000000000000000023f60fdbd138235b95f663a4163cb9260098b7d3";
@@ -60,10 +60,10 @@ async function main() {
   // await tokenProxy.deployed();
   // tokenProxyContract = tokenProxy.address;
   // console.log("IterableMapping deployed to:", tokenProxyContract); 
-   await hre.run("verify:verify", {
-    address: "0xD4C3f4D589AF6877D54d620e351108C82E465fD9",
-    constructorArguments: [goldTokenContract,"0x3d079b51EA706c9a7A40bc62e9CBF836060984Cd",callDataForToken],
-  });
+  //  await hre.run("verify:verify", {
+  //   address: "0xD4C3f4D589AF6877D54d620e351108C82E465fD9",
+  //   constructorArguments: [goldTokenContract,"0x3d079b51EA706c9a7A40bc62e9CBF836060984Cd",callDataForToken],
+  // });
 
   // pool Proxy
 
@@ -80,10 +80,10 @@ async function main() {
 
   // reward pool
 
-  //  await hre.run("verify:verify", {
-  //   address: "0x0AA6ec112Ea7CEd3A920833Cae66f5A7424eFabF",
-  //   constructorArguments: [],
-  // });
+   await hre.run("verify:verify", {
+    address: "0x76f9412a657FF8459B127e556264f4dB3C5975F2",
+    constructorArguments: ["0xf6d0285D1c52083d9C4d39fa10D7E6696d244B81"],
+  });
 
 }
 main().catch((error) => {

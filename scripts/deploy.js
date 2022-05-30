@@ -2,13 +2,13 @@ const hre = require("hardhat");
 
 async function main() {
 
-  let iterableMappingContract = "";
+  let iterableMappingContract = "0x7Be391A30e708494622b39880FF7a239Fe320949";
   let rewardPool = "";
   let goldTokenContract = "";
   let tokenProxyContract  = "";
   let poolProxyContract = "";
-  let callDataForToken = "0xc4d66de800000000000000000000000023f60fdbd138235b95f663a4163cb9260098b7d3";
-  let callDataForPool = "0xc4d66de80000000000000000000000003787d16f9f2e4adf598355c4ff4800b3500d57fa";
+  let callDataForToken = "";
+  let callDataForPool = "";
 
 
   let poolContract;
@@ -18,7 +18,7 @@ async function main() {
   // const IterableMapping = await mapping.deploy();
   // await IterableMapping.deployed();
   // iterableMappingContract = IterableMapping.address;
-  // console.log("IterableMapping deployed to:", IterableMapping.address); 
+ // console.log("IterableMapping deployed to:", IterableMapping.address); 
   //  await hre.run("verify:verify", {
   //   address: iterableMappingContract,
   //   constructorArguments: [],
@@ -40,15 +40,15 @@ async function main() {
   //     },
   // });
 
-  // const gToken = await hre.ethers.getContractFactory("MyToken");
-  // const goldTOken = await gToken.deploy();
-  // await goldTOken.deployed();
-  // goldTokenContract = goldTOken.address;
-  // console.log("goldTokenContract deployed to:", goldTokenContract); 
-  //  await hre.run("verify:verify", {
-  //   address: goldTokenContract,
-  //   constructorArguments: [],
-  // });
+  const gToken = await hre.ethers.getContractFactory("GoldenDuckToken");
+  const goldTOken = await gToken.deploy();
+  await goldTOken.deployed();
+  goldTokenContract = goldTOken.address;
+  console.log("goldTokenContract deployed to:", goldTokenContract); 
+   await hre.run("verify:verify", {
+    address: goldTokenContract,
+    constructorArguments: [],
+  });
 
 
 
@@ -80,10 +80,10 @@ async function main() {
 
   // reward pool
 
-   await hre.run("verify:verify", {
-    address: "0x76f9412a657FF8459B127e556264f4dB3C5975F2",
-    constructorArguments: ["0xf6d0285D1c52083d9C4d39fa10D7E6696d244B81"],
-  });
+  //  await hre.run("verify:verify", {
+  //   address: "0x76f9412a657FF8459B127e556264f4dB3C5975F2",
+  //   constructorArguments: ["0xf6d0285D1c52083d9C4d39fa10D7E6696d244B81"],
+  // });
 
 }
 main().catch((error) => {

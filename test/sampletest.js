@@ -5,7 +5,7 @@ const WBNB = artifacts.require("WBNB");
 const PancakeRouter = artifacts.require("PancakeRouter");
 const PancakeFacotry = artifacts.require("PancakeFactory");
 const token = artifacts.require("MyToken1");
-const neggToken = artifacts.require("MyToken");
+const gold = artifacts.require("GoldenDuckToken");
 const LpPair = artifacts.require("PancakePair");
 const IterableMapping = artifacts.require("IterableMapping");
 const distributor = artifacts.require("RewardDistributor");
@@ -25,7 +25,7 @@ contract("Token Gas Reduce", (accounts) => {
 
       busdInstance = await token.new();
       daiInstance = await token.new();
-      neggInstance = await neggToken.new();
+      goldInstance = await gold.new();
   });
 
   describe("Token Set", () => {
@@ -40,10 +40,10 @@ contract("Token Gas Reduce", (accounts) => {
         let user1 = accounts[1];
         let amount = "10000000000000000000000";
 
-        await neggInstance.initialize(rewardPool.address, {from: owner});
-        await neggInstance.setRewardEnable(false, {from: owner});
+        await goldInstance.initialize(rewardPool.address, {from: owner});        
+        await rewardPool.initialize(goldInstance.address,pancakeRouterInstance.address, {from: owner});
 
-        let tokenArr = [busdInstance,daiInstance,neggInstance];
+        let tokenArr = [busdInstance,daiInstance,goldInstance];
 
         for(let i=0;i<3;i++){
           await tokenArr[i].transfer(user1,amount, {from: owner});
@@ -64,10 +64,7 @@ contract("Token Gas Reduce", (accounts) => {
         }
 
 
-        await rewardPool.initialize(neggInstance.address,pancakeRouterInstance.address, {from: owner});
         await rewardPool.excludeFromRewards(owner, {from: owner});
-
-        await neggInstance.setRewardEnable(true, {from: owner});
       });  
   })
 
@@ -85,26 +82,27 @@ contract("Token Gas Reduce", (accounts) => {
         );
 
         await rewardPool.createRewardDistributor(
-          neggInstance.address,
+          goldInstance.address,
           20,
           86400,
-          "100000000000000000000", {from: owner}
+          "300000000000000000000", {from: owner}
         );
 
         await rewardPool.createRewardDistributor(
           daiInstance.address,
           20,
           86400,
-          "100000000000000000000", {from: owner}
+          "500000000000000000000", {from: owner}
         );
       }); 
 
       it("token Transfer", async function () {
-        let amount = "100000000000000000000";
-
-        for(let i=2;i<10;i++){
-          await neggInstance.transfer(accounts[i],amount, {from: owner});
-        }
+        await goldInstance.transfer(accounts[2],"100000000000000000000", {from: owner});
+        await goldInstance.transfer(accounts[3],"100000000000000000000", {from: owner});
+        await goldInstance.transfer(accounts[4],"300000000000000000000", {from: owner});
+        await goldInstance.transfer(accounts[5],"400000000000000000000", {from: owner});
+        await goldInstance.transfer(accounts[6],"600000000000000000000", {from: owner});
+        await goldInstance.transfer(accounts[7],"600000000000000000000", {from: owner});
       });  
 
       it("buyback", async function () {
@@ -113,47 +111,79 @@ contract("Token Gas Reduce", (accounts) => {
 
         console.log(
           "getNumberOfTokenHolders",
-          Number(await rewardPool.getNumberOfTokenHolders())
+          Number(await rewardPool.getNumberOfTokenHolders(daiInstance.address))
         );
 
-        let pool = await rewardPool.rewardInfo(busdInstance.address);
-        let distributorInstance = await distributor.at(pool[0]);
+        let pool = await rewardPool.getRewardsDistributor(daiInstance.address);
+        let distributorInstance = await distributor.at(pool);
 
         await web3.eth.sendTransaction({from: owner, to: rewardPool.address, value: 10e18 });
 
         console.log("bnbBalance", Number(await rewardPool.bnbBalance()));
 
-        console.log("getNumberOfTokenHolders2", Number(await rewardPool.getNumberOfTokenHolders()));
+        console.log("Dai Address", daiInstance.address);
 
-        console.log("before busd balance to distributorInstance", Number(await busdInstance.balanceOf(distributorInstance.address)));
+        console.log("before dai balance to distributorInstance", Number(await daiInstance.balanceOf(distributorInstance.address)));
 
         await rewardPool.generateBuyBack("10000000000000000000", {from: owner});
 
-        console.log("after busd balance to distributorInstance ", String(await busdInstance.balanceOf(distributorInstance.address)));
+        console.log("after dai balance to distributorInstance ", String(await daiInstance.balanceOf(distributorInstance.address)));
+      }); 
+
+
+      it("token Transfer", async function () {
+
+          let userBalance1 = await rewardPool.rewardOf(daiInstance.address,accounts[6]);
+          let userBalance2 = await rewardPool.rewardOf(daiInstance.address,accounts[7]);
+
+          console.log("Account 6 dai reward", Number(userBalance1/1e18));
+          console.log("Account 7 dai reward", Number(userBalance2/1e18));
+
+          console.log(
+            "User Balance For Dai Reward", 
+            Number(await rewardPool.rewardOf(daiInstance.address,accounts[4]) / 1e18)
+          );
+          console.log(
+            "User Balance For Dai Reward", 
+            Number(await rewardPool.rewardOf(daiInstance.address,accounts[5]) / 1e18)
+          );
+          console.log(
+            "User Balance For Dai Reward", 
+            Number(await rewardPool.rewardOf(daiInstance.address,accounts[3]) / 1e18)
+          );
+          console.log(
+            "User Balance For Dai Reward", 
+            Number(await rewardPool.rewardOf(daiInstance.address,accounts[2]) / 1e18)
+          )
+
+          console.log(
+            "totalHolderSupply",
+            Number(await rewardPool.totalHolderSupply(daiInstance.address)/ 1e18)
+          )
       }); 
       
-      it("auto distribute", async function () {
-        let user1 = accounts[2];
-        let amount = "10000000000";
-        let pool = await rewardPool.rewardInfo(busdInstance.address);
-        let dividendInstance = await distributor.at(pool[0]);
+      // it("auto distribute", async function () {
+      //   let user1 = accounts[2];
+      //   let amount = "10000000000";
+      //   let pool = await rewardPool.rewardInfo(busdInstance.address);
+      //   let dividendInstance = await distributor.at(pool[0]);
 
 
-        console.log("getNumberOfTokenHolders2", Number(await rewardPool.getNumberOfTokenHolders()));
+      //   console.log("getNumberOfTokenHolders2", Number(await rewardPool.getNumberOfTokenHolders(busdInstance.address)));
 
-        console.log("before busd balance to contract", String(await busdInstance.balanceOf(dividendInstance.address)));
+      //   console.log("before busd balance to contract", String(await busdInstance.balanceOf(dividendInstance.address)));
 
-        await rewardPool.autoDistribute(busdInstance.address, {from: owner,gas: 10000000});
-        await rewardPool.autoDistribute(busdInstance.address, {from: owner,gas: 10000000});
-        await rewardPool.autoDistribute(busdInstance.address, {from: owner,gas: 10000000});
-        await rewardPool.autoDistribute(busdInstance.address, {from: owner,gas: 10000000});
+      //   await rewardPool.autoDistribute(busdInstance.address, {from: owner,gas: 10000000});
+      //   await rewardPool.autoDistribute(busdInstance.address, {from: owner,gas: 10000000});
+      //   await rewardPool.autoDistribute(busdInstance.address, {from: owner,gas: 10000000});
+      //   await rewardPool.autoDistribute(busdInstance.address, {from: owner,gas: 10000000});
 
-       // let result = await rewardPool.accumulativeDividendOf2(user1);
+      //  // let result = await rewardPool.accumulativeDividendOf2(user1);
 
-        console.log("after busd balance to contract", String(await busdInstance.balanceOf(dividendInstance.address)));
+      //   console.log("after busd balance to contract", String(await busdInstance.balanceOf(dividendInstance.address)));
 
-      // console.log("result", String(result));
-      });
+      // // console.log("result", String(result));
+      // });
 
       // it("claim", async function () {
       //   let user1 = accounts[2];

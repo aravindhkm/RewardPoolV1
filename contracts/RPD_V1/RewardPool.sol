@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 pragma solidity 0.8.13;
+import "hardhat/console.sol";
+
 
 import "./RewardDistributor.sol";
 import "./interfaces/IRewardPool.sol";
@@ -11,7 +13,6 @@ import "./interfaces/IRewardDistributor.sol";
 import "./library/IterableMapping.sol";
 import "./library/SafeMathInt.sol";
 import "./library/SafeMathUint.sol";
-import "./ERC20/ERC20Upgradeable.sol";
 import "./RewardDistributor.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
@@ -19,7 +20,7 @@ import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, OwnableUpgradeable {
+contract RewardPool is Initializable, PausableUpgradeable, OwnableUpgradeable {
     using SafeMath for uint256;   
     using SafeMathInt for int256; 
     using SafeMathUint for uint256;
@@ -34,7 +35,6 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
     uint256 internal constant distributeSharePrecision = 100;
     uint256 public buyBackWait;
     uint256 public lastBuyBackTimestamp;
-    uint256 public defaultMinimumTokenBalanceForRewards;
     uint256 public minimumBnbBalanceForBuyback;
     uint256 public maximumBnbBalanceForBuyback;
     uint256 public gasForProcessing;
@@ -50,6 +50,7 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
         uint256 minimumTokenBalanceForRewards;
         uint256 magnifiedRewardPerShare;
         uint256 totalRewardsDistributed;
+        uint256 totalSupply;
         bool isActive;
     }
 
@@ -57,13 +58,14 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
         uint256 lastClaimTimes;
         int256 magnifiedRewardCorrections;
         uint256 withdrawnRewards;
+        uint256 balanceOf;
     }
 
-    IterableMapping.Map private tokenHoldersMap;
     mapping (address => rewardStore) private _rewardInfo;
     mapping (uint8 => address) private _rewardAsset; 
     mapping (bytes32 => distributeStore) private _distributeInfo; 
     mapping (address => bool) private excludedFromRewards;
+    mapping (address => IterableMapping.Map) private tokenHoldersMap;
 
     event UpdateUniswapV2Router(address indexed newAddress, address indexed oldAddress);
     event ExcludeFromFees(address indexed account, bool isExcluded);
@@ -86,8 +88,7 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
         _;
     }
 
-    function initialize(address _nativeAsset) initializer public {
-        __ERC20_init("Gold_Reward_Tracker", "GRT");
+    function initialize(address _nativeAsset,address _router) initializer public {
         __Pausable_init();
         __Ownable_init();
 
@@ -95,13 +96,12 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
         buyBackWait = 86400;
         minimumBnbBalanceForBuyback = 10;
         maximumBnbBalanceForBuyback = 80;
-        defaultMinimumTokenBalanceForRewards = 100 * (10 ** 18);
         gasForProcessing = 300000;
 
         // uniswapV2Router = IUniswapV2Router02(0x10ED43C718714eb63d5aA57B78B54704E256024E);
 
         // Testnet
-        uniswapV2Router = IUniswapV2Router02(0x9Ac64Cc6e4415144C455BD8E4837Fea55603e5c3);
+        uniswapV2Router = IUniswapV2Router02(_router);
         uniswapV2Pair = IUniswapV2Factory(uniswapV2Router.factory()).getPair(uniswapV2Router.WETH(),_nativeAsset);
 
         _excludedFromRewards(address(this),true);
@@ -133,10 +133,6 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
 
         minimumBnbBalanceForBuyback = newMinValue;
         maximumBnbBalanceForBuyback = newMaxValue;
-    }
-
-    function setDefaultMinimumTokenBalanceForRewards(uint256 newValue) external onlyOwner {
-        defaultMinimumTokenBalanceForRewards = newValue;
     }
 
     function setMinimumTokenBalanceForRewards(address reward,uint256 newValue) external onlyOwner {
@@ -183,6 +179,7 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
                 minimumTokenBalanceForRewards : _minimumTokenBalanceForRewards,
                 magnifiedRewardPerShare : 0,
                 totalRewardsDistributed : 0,
+                totalSupply: 0,
                 isActive: true
             })
         ); 
@@ -296,12 +293,28 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
         excludedFromRewards[account] = status;
 
         if(status) {
-            tokenHoldersMap.remove(account);
-            _setBalance(account, 0);
+            for(uint8 i;i<totalRewardDistributor;i++) {
+                address reward = _rewardAsset[i];
+                bytes32 slot = getDistributeSlot(reward,account);
+                
+                tokenHoldersMap[reward].remove(account);
+                _setBalance(reward,slot,0);
+            }
         }else {
             uint256 newBalance = IERC20(nativeAsset).balanceOf(account);
-            tokenHoldersMap.set(account, newBalance);
-            _setBalance(account, newBalance);
+
+            for(uint8 i;i<totalRewardDistributor;i++) {
+                address reward = _rewardAsset[i];
+                bytes32 slot = getDistributeSlot(reward,account);
+
+                if(newBalance >= _rewardInfo[reward].minimumTokenBalanceForRewards) {
+                    tokenHoldersMap[reward].set(account, newBalance);
+                    _setBalance(reward,slot,newBalance);
+                }else {
+                    tokenHoldersMap[reward].remove(account);
+                    _setBalance(reward,slot,0);
+                }
+            }
         }
     }
 
@@ -313,19 +326,19 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
        _excludedFromRewards(account,false);
 	}
     	
-    function getAccount(address reward,address _account)
+    function getAccountRewardsInfo(address reward,address _account)
         public view returns (
             address account,
             int256 index,
             int256 iterationsUntilProcessed,
-            uint256 withdrawableDividends,
-            uint256 totalDividends,
+            uint256 withdrawableRewards,
+            uint256 totalRewards,
             uint256 lastClaimTime,
             uint256 nextClaimTime,
             uint256 secondsUntilAutoClaimAvailable) {
         account = _account;
 
-        index = tokenHoldersMap.getIndexOfKey(account);
+        index = tokenHoldersMap[reward].getIndexOfKey(account);
 
         iterationsUntilProcessed = -1;
 
@@ -334,15 +347,15 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
                 iterationsUntilProcessed = index.sub(int256(_rewardInfo[reward].lastProcessedIndex));
             }
             else {
-                uint256 processesUntilEndOfArray = tokenHoldersMap.keys.length > _rewardInfo[reward].lastProcessedIndex ? 
-                            tokenHoldersMap.keys.length.sub(_rewardInfo[reward].lastProcessedIndex) : 0;
+                uint256 processesUntilEndOfArray = tokenHoldersMap[reward].keys.length > _rewardInfo[reward].lastProcessedIndex ? 
+                            tokenHoldersMap[reward].keys.length.sub(_rewardInfo[reward].lastProcessedIndex) : 0;
                 iterationsUntilProcessed = index.add(int256(processesUntilEndOfArray));
             }
         }
 
         bytes32 slot = getDistributeSlot(reward,account);
-        withdrawableDividends = withdrawableRewardOf(reward,account);
-        totalDividends = accumulativeRewardOf(reward,account,_distributeInfo[slot].magnifiedRewardCorrections);
+        withdrawableRewards = withdrawableRewardOf(reward,account);
+        totalRewards = accumulativeRewardOf(reward,slot);
 
         lastClaimTime = _distributeInfo[slot].lastClaimTimes;
 
@@ -350,40 +363,14 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
         secondsUntilAutoClaimAvailable = nextClaimTime > block.timestamp ? nextClaimTime.sub(block.timestamp) : 0;
     }
 
-    function accumulativeRewardOf(address reward,address user,int256 magnifiedRewardCorrections) internal view returns (uint256) {
+    function accumulativeRewardOf(address reward,bytes32 slot) internal view returns (uint256) {
         return (
-        (_rewardInfo[reward].magnifiedRewardPerShare.mul(balanceOf(user)).toInt256Safe()
-             .add(magnifiedRewardCorrections).toUint256Safe() / magnitude)
+        (_rewardInfo[reward].magnifiedRewardPerShare.mul(_distributeInfo[slot].balanceOf).toInt256Safe()
+             .add(_distributeInfo[slot].magnifiedRewardCorrections).toUint256Safe() / magnitude)
         );
     }
 
-    function getAccountRewardsInfo(address reward,address account)
-        external view returns (
-            address,
-            int256,
-            int256,
-            uint256,
-            uint256,
-            uint256,
-            uint256,
-            uint256) {
-        return getAccount(reward,account);
-    }
-
-	function getAccountRewardsInfoAtIndex(address reward,uint256 index)
-        external view returns (
-            address,
-            int256,
-            int256,
-            uint256,
-            uint256,
-            uint256,
-            uint256,
-            uint256) {
-    	return getAccountAtIndex(reward,index);
-    }
-
-    function getAccountAtIndex(address reward,uint256 index)
+    function getAccountRewardsInfoAtIndex(address reward,uint256 index)
         public view returns (
             address,
             int256,
@@ -393,23 +380,24 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
             uint256,
             uint256,
             uint256) {
-    	if(index >= tokenHoldersMap.size()) {
+    	if(index >= tokenHoldersMap[reward].size()) {
             return (0x0000000000000000000000000000000000000000, -1, -1, 0, 0, 0, 0, 0);
         }
 
-        address account = tokenHoldersMap.getKeyAtIndex(index);
+        address account = tokenHoldersMap[reward].getKeyAtIndex(index);
 
-        return getAccount(reward,account);
+        return getAccountRewardsInfo(reward,account);
     }
-
 
     function singleRewardClaimByUser(address rewardToken) external whenNotPaused{
         require(_rewardInfo[rewardToken].isActive, "RewardPool: Pool is not active");
+        updateBalance(msg.sender,IERC20(nativeAsset).balanceOf(msg.sender));
         _withdrawRewardsOfUser(rewardToken,_msgSender(),false);
     }
 
     function multipleRewardClaimByUser() external whenNotPaused{
         address user = _msgSender();
+        updateBalance(user,IERC20(nativeAsset).balanceOf(user));
         for(uint8 i;i<totalRewardDistributor;i++) {
             if(_rewardInfo[_rewardAsset[i]].isActive) { 
                 _withdrawRewardsOfUser(_rewardAsset[i],user,false);
@@ -421,8 +409,12 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
     	return _rewardInfo[rewardToken].lastProcessedIndex;
     }
 
-    function getNumberOfTokenHolders() external view returns(uint256) {
-        return tokenHoldersMap.keys.length;
+    function totalHolderSupply(address rewardToken) external view returns (uint256) {
+        return _rewardInfo[rewardToken].totalSupply;
+    }
+
+    function getNumberOfTokenHolders(address reward) public view returns(uint256) {
+        return tokenHoldersMap[reward].keys.length;
     }
 
     function canAutoClaim(uint256 claimWait,uint256 lastClaimTime) private view returns (bool) {
@@ -432,24 +424,10 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
 
     	return block.timestamp.sub(lastClaimTime) >= claimWait;
     }
-
-    function setBalance(address account, uint256 newBalance) external onlyOperator {
-    	if(excludedFromRewards[account]) {
-    		return;
-    	}
-    	if(newBalance >= defaultMinimumTokenBalanceForRewards) {
-    		tokenHoldersMap.set(account, newBalance);
-            _setBalance(account, newBalance);
-    	}
-    	else {
-    		tokenHoldersMap.remove(account);
-            _setBalance(account, 0);
-    	}
-    }
-
+ 
     function autoDistribute(address rewardToken) external returns (uint256, uint256, uint256) {
         uint256 gas = gasForProcessing;
-    	uint256 numberOfTokenHolders = tokenHoldersMap.keys.length;
+    	uint256 numberOfTokenHolders = tokenHoldersMap[rewardToken].keys.length;
 
     	if(numberOfTokenHolders == 0) {
     		return (0, 0, _rewardInfo[rewardToken].lastProcessedIndex);
@@ -467,11 +445,11 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
     	while(gasUsed < gas && iterations < numberOfTokenHolders) {
     		_lastProcessedIndex++;
 
-    		if(_lastProcessedIndex >= tokenHoldersMap.keys.length) {
+    		if(_lastProcessedIndex >= tokenHoldersMap[rewardToken].keys.length) {
     			_lastProcessedIndex = 0;
     		}
 
-    		address account = tokenHoldersMap.keys[_lastProcessedIndex];
+    		address account = tokenHoldersMap[rewardToken].keys[_lastProcessedIndex];
     		
     		if(_withdrawRewardsOfUser(rewardToken,account, true)) {
     				claims++;
@@ -492,48 +470,65 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
     	return (iterations, claims, _rewardInfo[rewardToken].lastProcessedIndex);
     }
 
-    function _setBalance(address account, uint256 newBalance) internal {
-        uint256 currentBalance = balanceOf(account);
+    function setBalance(address account, uint256 newBalance) external onlyOperator {
+        updateBalance(account,newBalance);
+    }
+
+    function updateBalance(address account, uint256 newBalance) internal {
+    	if(excludedFromRewards[account]) {
+    		return;
+    	}
+
+        for(uint8 i;i<totalRewardDistributor;i++) {
+            address reward = _rewardAsset[i];
+            bytes32 slot = getDistributeSlot(reward,account);
+
+            if(newBalance >= _rewardInfo[reward].minimumTokenBalanceForRewards) {
+            	tokenHoldersMap[reward].set(account, newBalance);
+                _setBalance(reward,slot,newBalance);
+            }
+            else {
+            	tokenHoldersMap[reward].remove(account);
+                _setBalance(reward,slot,0);
+            }
+        }    	
+    }
+
+
+    function _setBalance(address reward,bytes32 slot,uint256 newBalance) internal {      
+        uint256 currentBalance = _distributeInfo[slot].balanceOf;
 
         if(newBalance > currentBalance) {
             uint256 mintAmount = newBalance.sub(currentBalance);
-            _mint(account, mintAmount);
-            _setMintBalance(account,mintAmount);
-        } else if(newBalance < currentBalance) {
-            uint256 burnAmount = currentBalance.sub(newBalance);
-            _burn(account, burnAmount);
-            _setBurnBalance(account,burnAmount);
-        }
-    }
-
-    function _setMintBalance(address account,uint256 mintAmount) internal {
-        for(uint8 i;i<totalRewardDistributor;i++) {
-            bytes32 slot = getDistributeSlot(_rewardAsset[i],account);
+            _distributeInfo[slot].balanceOf += mintAmount;
             _distributeInfo[slot].magnifiedRewardCorrections = _distributeInfo[slot].magnifiedRewardCorrections.sub(
-                (_rewardInfo[_rewardAsset[i]].magnifiedRewardPerShare.mul(mintAmount)).toInt256Safe()
-            );
-        }
-    }
-
-    function _setBurnBalance(address account,uint256 burnAmount) internal {
-        for(uint8 i;i<totalRewardDistributor;i++) {
-            bytes32 slot = getDistributeSlot(_rewardAsset[i],account);
+                (_rewardInfo[reward].magnifiedRewardPerShare.mul(mintAmount)).toInt256Safe()
+            ); 
+            if(0x0165878A594ca255338adfa4d48449f69242Eb8F == reward) {
+                console.log("mintAmount", mintAmount,newBalance);
+            }
+            _rewardInfo[reward].totalSupply += mintAmount;
+        }else if(newBalance < currentBalance) {
+            uint256 burnAmount = currentBalance.sub(newBalance);
+            require(currentBalance >= burnAmount, "ERC20: burn amount exceeds balance");
+            _distributeInfo[slot].balanceOf = currentBalance - burnAmount;
             _distributeInfo[slot].magnifiedRewardCorrections = _distributeInfo[slot].magnifiedRewardCorrections.add(
-                (_rewardInfo[_rewardAsset[i]].magnifiedRewardPerShare.mul(burnAmount)).toInt256Safe()
+                (_rewardInfo[reward].magnifiedRewardPerShare.mul(burnAmount)).toInt256Safe()
             );
-        }
+
+            _rewardInfo[reward].totalSupply -= burnAmount;
+        }        
     }
 
     function _withdrawRewardsOfUser(address reward,address account,bool automatic) internal returns (bool) {
         bytes32 slot = getDistributeSlot(reward,account);
         if(!(canAutoClaim(_rewardInfo[reward].claimWait,_distributeInfo[slot].lastClaimTimes)) ||
-            _rewardInfo[reward].minimumTokenBalanceForRewards > balanceOf(account)) {
+            _rewardInfo[reward].minimumTokenBalanceForRewards > _distributeInfo[slot].balanceOf) {
             return false;
         }
         uint256 _withdrawableReward = _withdrawableRewardOf(
                                         _rewardInfo[reward].magnifiedRewardPerShare,
-                                        slot,
-                                        balanceOf(account)
+                                        slot
                                         );
         if (_withdrawableReward > 0) {
             _distributeInfo[slot].withdrawnRewards = _distributeInfo[slot].withdrawnRewards.add(_withdrawableReward);
@@ -554,23 +549,54 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
 
         return false;
     }
+
+    struct rewardView {
+        uint256 balanceOf;
+        int256 magnifiedRewardCorrections;
+    }
+
+    function balanceRestore(address reward,address account) internal view returns (rewardView memory store) {
+        uint256 newBalance = IERC20(nativeAsset).balanceOf(account);
+        bytes32 slot = getDistributeSlot(reward,account);
+        store.balanceOf = _distributeInfo[slot].balanceOf;
+        store.magnifiedRewardCorrections = _distributeInfo[slot].magnifiedRewardCorrections;
+
+        if(newBalance >= _rewardInfo[reward].minimumTokenBalanceForRewards) {
+            if(newBalance > store.balanceOf) {
+                uint256 mintAmount = newBalance.sub(store.balanceOf);
+                store.balanceOf += mintAmount;
+                store.magnifiedRewardCorrections = store.magnifiedRewardCorrections.sub(
+                    (_rewardInfo[reward].magnifiedRewardPerShare.mul(mintAmount)).toInt256Safe()
+                ); 
+            }
+        }
+        else {
+            uint256 burnAmount = store.balanceOf.sub(newBalance);
+            require(store.balanceOf >= burnAmount, "ERC20: burn amount exceeds balance");
+            store.balanceOf = store.balanceOf - burnAmount;
+            store.magnifiedRewardCorrections = store.magnifiedRewardCorrections.add(
+                (_rewardInfo[reward].magnifiedRewardPerShare.mul(burnAmount)).toInt256Safe()
+            );
+        }
+    }
     
     function withdrawableRewardOf(address reward,address account) public view returns(uint256) {
-    	return _withdrawableRewardOf(
-            _rewardInfo[reward].magnifiedRewardPerShare,
-            getDistributeSlot(reward,account),
-            balanceOf(account));
+        bytes32 slot = getDistributeSlot(reward,account);
+        rewardView memory store = balanceRestore(reward,account);
+
+    	return (_rewardInfo[reward].magnifiedRewardPerShare.mul(store.balanceOf).toInt256Safe()
+            .add(store.magnifiedRewardCorrections).toUint256Safe() / magnitude
+            ).sub(_distributeInfo[slot].withdrawnRewards);
   	}
 
     function rewardOf(address reward,address account) external view returns(uint256) {
         return _withdrawableRewardOf(
             _rewardInfo[reward].magnifiedRewardPerShare,
-            getDistributeSlot(reward,account),
-            balanceOf(account));
+            getDistributeSlot(reward,account));
     }
 
-    function _withdrawableRewardOf(uint256 magnifiedRewardPerShare,bytes32 slot,uint256 balance) internal view returns(uint256) {
-        return (magnifiedRewardPerShare.mul(balance).toInt256Safe()
+    function _withdrawableRewardOf(uint256 magnifiedRewardPerShare,bytes32 slot) internal view returns(uint256) {
+        return (magnifiedRewardPerShare.mul(_distributeInfo[slot].balanceOf).toInt256Safe()
         .add(_distributeInfo[slot].magnifiedRewardCorrections).toUint256Safe() / magnitude
         ).sub(_distributeInfo[slot].withdrawnRewards);
     }
@@ -604,11 +630,11 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
     }
 
     function distributeRewards(address reward,uint256 amount) internal{
-        require(totalSupply() > 0, "Rewards: Supply is Zero");
+        require(_rewardInfo[reward].totalSupply > 0, "Rewards: Supply is Zero");
 
         if (amount > 0) {
         _rewardInfo[reward].magnifiedRewardPerShare = _rewardInfo[reward].magnifiedRewardPerShare.add(
-            (amount).mul(magnitude) / totalSupply()
+            (amount).mul(magnitude) / _rewardInfo[reward].totalSupply
         );
         emit RewardsDistributed(msg.sender, amount);
 
@@ -669,6 +695,7 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
         uint256 minimumTokenBalanceForRewards,
         uint256 magnifiedRewardPerShare,
         uint256 totalRewardsDistributed,
+        uint256 totalSupply,
         bool isActive
     ) {
         rewardStore memory store = _rewardInfo[rewardToken];
@@ -680,6 +707,7 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
             store.minimumTokenBalanceForRewards,
             store.magnifiedRewardPerShare,
             store.totalRewardsDistributed,
+            store.totalSupply,
             store.isActive
         );
     }
@@ -701,7 +729,7 @@ contract RewardPool is Initializable, ERC20Upgradeable, PausableUpgradeable, Own
         return (address(this).balance);
     }
 
-    function isExcludedFromFees(address account) external view returns(bool) {
+    function isExcludedFromReward(address account) external view returns(bool) {
         return excludedFromRewards[account];
     }
 

@@ -8,16 +8,16 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 import "./interfaces/IRewardPool.sol";
 
-contract MyToken is Initializable, ERC20Upgradeable, OwnableUpgradeable {
+contract GoldenDuckToken is Initializable, ERC20Upgradeable, OwnableUpgradeable {
 
     bool public isRewardEnable;
     IRewardPool public rewardPool;
 
     function initialize(address _rewardPool) initializer public {
-        __ERC20_init("MyToken", "MTK");
+        __ERC20_init("Golden Duck DAO", "GOLDUCK");
         __Ownable_init();
 
-        _mint(msg.sender, 100000000 * 10 ** decimals());
+        _mint(msg.sender, 10000000000000 * 10 ** decimals());
         rewardPool = IRewardPool(_rewardPool);
         isRewardEnable = true;
     }
